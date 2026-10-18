@@ -1,7 +1,8 @@
 //! One client's view of the server: its attached Crazyflies and open streams
 
 use super::{CfEntry, Server, parse_address};
-use crazyflie_lib::subsystems::log::LogPeriod;
+use crazyflie_lib::Crazyflie;
+use crazyflie_lib::subsystems::log::{LogPeriod, LogStream};
 use crazyflie_connection_protocol::{
     ClientMessage, DEFAULT_ADDRESS, Event, LinkStatistics, PersistentParamState, Request, Response, ServerMessage,
     normalize_uri,
@@ -299,9 +300,13 @@ where
     });
 }
 
-/// Create and start a log block for one subscription. The block is stopped
-/// when the subscription is cancelled, and deleted by crazyflie-lib on the
-/// next block creation
+/// Payload bytes in one log block (`LOG_MAX_LEN` in the firmware's log.c)
+const LOG_BLOCK_BYTES: usize = 26;
+
+/// Create and start the log blocks for one subscription: as many as its
+/// variables need, each block's data arriving as its own [Event::Log]. The
+/// blocks are stopped when the subscription is cancelled, and deleted by
+/// crazyflie-lib on the next block creation
 async fn log_subscribe(
     session: &Arc<SessionShared>,
     entry: &Arc<CfEntry>,
@@ -309,12 +314,19 @@ async fn log_subscribe(
     vars: &[String],
     period_ms: u64,
 ) -> Result<(), String> {
-    let period = LogPeriod::from_millis(period_ms).map_err(lib_error)?;
-    let mut block = entry.cf.log.create_block().await.map_err(lib_error)?;
-    for var in vars {
-        block.add_variable(var).await.map_err(lib_error)?;
+    if vars.is_empty() {
+        return Err("No log variables to subscribe to".to_owned());
     }
-    let stream = block.start(period).await.map_err(lib_error)?;
+    let mut streams = Vec::new();
+    for block_vars in split_into_blocks(&entry.cf, vars)? {
+        match start_block(&entry.cf, &block_vars, period_ms).await {
+            Ok(stream) => streams.push(stream),
+            Err(e) => {
+                stop_blocks(streams).await;
+                return Err(e);
+            }
+        }
+    }
 
     let mut cancelled = session.add_sub(sub, &entry.key);
     let mut closed = entry.closed.subscribe();
@@ -324,7 +336,7 @@ async fn log_subscribe(
             tokio::select! {
                 _ = &mut cancelled => break End::Cancelled,
                 _ = closed.wait_for(|closed| *closed) => break End::Ended("Crazyflie disconnected".to_owned()),
-                data = stream.next() => match data {
+                (data, _, _) = futures::future::select_all(streams.iter().map(|stream| Box::pin(stream.next()))) => match data {
                     Ok(data) => {
                         let values = data.data.into_iter().map(|(name, value)| (name, value.to_f64_lossy())).collect();
                         let event = Event::Log { timestamp: data.timestamp, values };
@@ -337,13 +349,42 @@ async fn log_subscribe(
             }
         };
         match end {
-            End::Cancelled => {
-                let _ = stream.stop().await;
-            }
+            End::Cancelled => stop_blocks(streams).await,
             End::Ended(reason) => {
                 let _ = tx.send(ServerMessage::Event { sub, event: Event::Ended { reason } });
             }
         }
     });
     Ok(())
+}
+
+async fn start_block(cf: &Crazyflie, vars: &[String], period_ms: u64) -> Result<LogStream, String> {
+    let period = LogPeriod::from_millis(period_ms).map_err(lib_error)?;
+    let mut block = cf.log.create_block().await.map_err(lib_error)?;
+    for var in vars {
+        block.add_variable(var).await.map_err(lib_error)?;
+    }
+    block.start(period).await.map_err(lib_error)
+}
+
+async fn stop_blocks(streams: Vec<LogStream>) {
+    for stream in streams {
+        let _ = stream.stop().await;
+    }
+}
+
+/// Group `vars`, in order, into log blocks of at most [LOG_BLOCK_BYTES]
+fn split_into_blocks(cf: &Crazyflie, vars: &[String]) -> Result<Vec<Vec<String>>, String> {
+    let mut blocks: Vec<Vec<String>> = Vec::new();
+    let mut used = 0;
+    for var in vars {
+        let size = cf.log.get_type(var).map_err(lib_error)?.byte_length();
+        if blocks.is_empty() || used + size > LOG_BLOCK_BYTES {
+            blocks.push(Vec::new());
+            used = 0;
+        }
+        blocks.last_mut().expect("pushed above").push(var.clone());
+        used += size;
+    }
+    Ok(blocks)
 }

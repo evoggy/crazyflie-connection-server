@@ -71,7 +71,8 @@ pub enum Request {
     /// Clear the stored value of a persistent param
     ParamPersistentClear { uri: String, name: String },
 
-    /// Stream of [Event::Log] with the given variables
+    /// Stream of [Event::Log] with the given variables. Variables that don't fit
+    /// one log block (26 bytes) are spread over several, each arriving as its own event
     LogSubscribe { uri: String, sub: u64, vars: Vec<String>, period_ms: u64 },
 
     /// Stream of [Event::Console] lines, optionally starting with the history

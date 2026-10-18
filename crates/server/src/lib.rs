@@ -35,7 +35,9 @@ mod server;
 pub use crate::crazyflie::{
     Console, Crazyflie, HighLevelCommander, LinkService, Log, LogData, LogStream, Param, Platform, Supervisor,
 };
-pub use crazyflie_connection_protocol::{CfInfo, DEFAULT_PORT, LinkStatistics, PersistentParamState, TocItem};
+pub use crazyflie_connection_protocol::{
+    CfInfo, DEFAULT_PORT, LinkStatistics, NormalizedUri, PersistentParamState, TocItem, normalize_uri,
+};
 
 #[cfg(feature = "server")]
 pub use crate::server::{Server, ServerConfig, Session, TocStore, serve, serve_on};
