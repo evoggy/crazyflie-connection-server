@@ -19,8 +19,10 @@ pub struct Crazyflie {
     pub param: Param,
     pub log: Log,
     pub console: Console,
+    pub commander: Commander,
     pub high_level_commander: HighLevelCommander,
     pub supervisor: Supervisor,
+    pub localization: Localization,
     pub platform: Platform,
     pub link_service: LinkService,
     handle: Arc<Handle>,
@@ -100,8 +102,10 @@ impl Crazyflie {
             param: Param { handle: handle.clone(), toc: toc(params) },
             log: Log { handle: handle.clone(), toc: toc(log_vars) },
             console: Console { handle: handle.clone() },
+            commander: Commander { handle: handle.clone() },
             high_level_commander: HighLevelCommander { handle: handle.clone() },
             supervisor: Supervisor { handle: handle.clone() },
+            localization: Localization { lighthouse: Lighthouse { handle: handle.clone() } },
             platform: Platform { firmware_version, device_type, protocol_version },
             link_service: LinkService { handle: handle.clone() },
             handle,
@@ -328,6 +332,27 @@ impl Console {
     }
 }
 
+/// Low-level setpoints, same arguments as in `crazyflie-lib`
+pub struct Commander {
+    handle: Arc<Handle>,
+}
+
+impl Commander {
+    /// Roll and pitch in degrees, yaw rate in degrees/s, thrust 0-65535. Send
+    /// it repeatedly; the first setpoint must have zero thrust
+    pub async fn setpoint_rpyt(&self, roll: f32, pitch: f32, yawrate: f32, thrust: u16) -> Result<()> {
+        let uri = self.handle.uri.clone();
+        self.handle.call_done(Request::SetpointRpyt { uri, roll, pitch, yawrate, thrust }).await
+    }
+
+    /// End the low-level setpoints, so that the high-level commander takes
+    /// over after `remain_valid_milliseconds`
+    pub async fn notify_setpoint_stop(&self, remain_valid_milliseconds: u32) -> Result<()> {
+        let uri = self.handle.uri.clone();
+        self.handle.call_done(Request::NotifySetpointStop { uri, remain_valid_ms: remain_valid_milliseconds }).await
+    }
+}
+
 /// High-level commander, same arguments as in `crazyflie-lib`
 pub struct HighLevelCommander {
     handle: Arc<Handle>,
@@ -366,9 +391,47 @@ impl HighLevelCommander {
             .call_done(Request::GoTo { uri, x, y, z, yaw, duration, relative, linear, group_mask })
             .await
     }
+
+    /// Define trajectory `trajectory_id` from `num_pieces` pieces at
+    /// `memory_offset` in the trajectory memory
+    pub async fn define_trajectory(
+        &self,
+        trajectory_id: u8,
+        memory_offset: u32,
+        num_pieces: u8,
+        trajectory_type: Option<u8>,
+    ) -> Result<()> {
+        let uri = self.handle.uri.clone();
+        self.handle
+            .call_done(Request::DefineTrajectory { uri, id: trajectory_id, memory_offset, num_pieces, trajectory_type })
+            .await
+    }
+
+    pub async fn start_trajectory(
+        &self,
+        trajectory_id: u8,
+        time_scale: f32,
+        relative_position: bool,
+        relative_yaw: bool,
+        reversed: bool,
+        group_mask: Option<u8>,
+    ) -> Result<()> {
+        let uri = self.handle.uri.clone();
+        self.handle
+            .call_done(Request::StartTrajectory {
+                uri,
+                id: trajectory_id,
+                time_scale,
+                relative_position,
+                relative_yaw,
+                reversed,
+                group_mask,
+            })
+            .await
+    }
 }
 
-/// Supervisor: arming and emergency stop
+/// Supervisor: arming, emergency stop and crash recovery
 pub struct Supervisor {
     handle: Arc<Handle>,
 }
@@ -380,6 +443,54 @@ impl Supervisor {
 
     pub async fn send_emergency_stop(&self) -> Result<()> {
         self.handle.call_done(Request::EmergencyStop { uri: self.handle.uri.clone() }).await
+    }
+
+    /// Recover a Crazyflie that crashed (tumbled)
+    pub async fn send_crash_recovery_request(&self) -> Result<()> {
+        self.handle.call_done(Request::CrashRecovery { uri: self.handle.uri.clone() }).await
+    }
+}
+
+/// Localization systems
+pub struct Localization {
+    pub lighthouse: Lighthouse,
+}
+
+/// Lighthouse positioning
+pub struct Lighthouse {
+    handle: Arc<Handle>,
+}
+
+/// Sweep angles from one base station, like `crazyflie-lib`'s
+#[derive(Debug, Clone)]
+pub struct LighthouseAngleData {
+    pub base_station: u8,
+    pub angles: LighthouseAngles,
+}
+
+/// Sweep angles of the four sensors, in radians
+#[derive(Debug, Clone)]
+pub struct LighthouseAngles {
+    pub x: [f32; 4],
+    pub y: [f32; 4],
+}
+
+impl Lighthouse {
+    /// Sweep angles as the Crazyflie sends them, which it only does while the
+    /// `locSrv.enLhAngleStream` param is 1
+    pub async fn angle_stream(&self) -> Result<BoxStream<'static, LighthouseAngleData>> {
+        let uri = self.handle.uri.clone();
+        self.handle
+            .stream(
+                |sub| Request::LighthouseAngleSubscribe { uri, sub },
+                |event| match event {
+                    Event::LighthouseAngles { base_station, x, y } => {
+                        Some(LighthouseAngleData { base_station, angles: LighthouseAngles { x, y } })
+                    }
+                    _ => None,
+                },
+            )
+            .await
     }
 }
 

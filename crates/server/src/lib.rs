@@ -33,7 +33,8 @@ mod crazyflie;
 mod server;
 
 pub use crate::crazyflie::{
-    Console, Crazyflie, HighLevelCommander, LinkService, Log, LogData, LogStream, Param, Platform, Supervisor,
+    Commander, Console, Crazyflie, HighLevelCommander, Lighthouse, LighthouseAngleData, LighthouseAngles, LinkService,
+    Localization, Log, LogData, LogStream, Param, Platform, Supervisor,
 };
 pub use crazyflie_connection_protocol::{
     CfInfo, DEFAULT_PORT, LinkStatistics, NormalizedUri, PersistentParamState, TocItem, normalize_uri,

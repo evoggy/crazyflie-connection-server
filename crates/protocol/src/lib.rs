@@ -78,6 +78,10 @@ pub enum Request {
     /// Stream of [Event::Console] lines, optionally starting with the history
     ConsoleSubscribe { uri: String, sub: u64, history: bool },
 
+    /// Stream of [Event::LighthouseAngles]. The Crazyflie sends them only while
+    /// the `locSrv.enLhAngleStream` param is 1
+    LighthouseAngleSubscribe { uri: String, sub: u64 },
+
     /// Stop a stream opened with `sub`
     Unsubscribe { sub: u64 },
 
@@ -95,9 +99,29 @@ pub enum Request {
         linear: bool,
         group_mask: Option<u8>,
     },
+    /// Define trajectory `id` as `num_pieces` pieces at `memory_offset` in the trajectory memory
+    DefineTrajectory { uri: String, id: u8, memory_offset: u32, num_pieces: u8, trajectory_type: Option<u8> },
+    StartTrajectory {
+        uri: String,
+        id: u8,
+        time_scale: f32,
+        relative_position: bool,
+        relative_yaw: bool,
+        reversed: bool,
+        group_mask: Option<u8>,
+    },
+
+    /// Low-level setpoint, sent repeatedly: roll and pitch in degrees, yaw rate
+    /// in degrees/s, thrust 0-65535
+    SetpointRpyt { uri: String, roll: f32, pitch: f32, yawrate: f32, thrust: u16 },
+    /// End the low-level setpoints, so that the high-level commander takes over
+    /// after `remain_valid_ms`
+    NotifySetpointStop { uri: String, remain_valid_ms: u32 },
 
     ArmingRequest { uri: String, arm: bool },
     EmergencyStop { uri: String },
+    /// Recover a Crazyflie that crashed (tumbled)
+    CrashRecovery { uri: String },
 
     LinkStatistics { uri: String },
 }
@@ -141,6 +165,8 @@ pub enum Event {
     ParamChanged { name: String, value: f64 },
     Log { timestamp: u32, values: BTreeMap<String, f64> },
     Console { line: String },
+    /// Sweep angles of the four sensors, in radians, from one base station
+    LighthouseAngles { base_station: u8, x: [f32; 4], y: [f32; 4] },
     /// The stream ended on the server side (disconnect, log error, …)
     Ended { reason: String },
 }

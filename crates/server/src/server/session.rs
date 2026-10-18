@@ -208,6 +208,17 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
             forward(session, &entry, sub, lines.map(|line| Event::Console { line }));
             Ok(Response::Done)
         }
+        Request::LighthouseAngleSubscribe { uri, sub } => {
+            let entry = attached(server, session, &uri)?;
+            let angles = entry.cf.localization.lighthouse.angle_stream().await;
+            let events = angles.map(|data| Event::LighthouseAngles {
+                base_station: data.base_station,
+                x: data.angles.x,
+                y: data.angles.y,
+            });
+            forward(session, &entry, sub, events);
+            Ok(Response::Done)
+        }
         Request::Unsubscribe { sub } => {
             session.subs.lock().unwrap().remove(&sub);
             Ok(Response::Done)
@@ -237,6 +248,36 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
                 .map_err(lib_error)?;
             Ok(Response::Done)
         }
+        Request::DefineTrajectory { uri, id, memory_offset, num_pieces, trajectory_type } => {
+            let entry = attached(server, session, &uri)?;
+            entry
+                .cf
+                .high_level_commander
+                .define_trajectory(id, memory_offset, num_pieces, trajectory_type)
+                .await
+                .map_err(lib_error)?;
+            Ok(Response::Done)
+        }
+        Request::StartTrajectory { uri, id, time_scale, relative_position, relative_yaw, reversed, group_mask } => {
+            let entry = attached(server, session, &uri)?;
+            entry
+                .cf
+                .high_level_commander
+                .start_trajectory(id, time_scale, relative_position, relative_yaw, reversed, group_mask)
+                .await
+                .map_err(lib_error)?;
+            Ok(Response::Done)
+        }
+        Request::SetpointRpyt { uri, roll, pitch, yawrate, thrust } => {
+            let entry = attached(server, session, &uri)?;
+            entry.cf.commander.setpoint_rpyt(roll, pitch, yawrate, thrust).await.map_err(lib_error)?;
+            Ok(Response::Done)
+        }
+        Request::NotifySetpointStop { uri, remain_valid_ms } => {
+            let entry = attached(server, session, &uri)?;
+            entry.cf.commander.notify_setpoint_stop(remain_valid_ms).await.map_err(lib_error)?;
+            Ok(Response::Done)
+        }
         Request::ArmingRequest { uri, arm } => {
             let entry = attached(server, session, &uri)?;
             entry.cf.supervisor.send_arming_request(arm).await.map_err(lib_error)?;
@@ -245,6 +286,11 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
         Request::EmergencyStop { uri } => {
             let entry = attached(server, session, &uri)?;
             entry.cf.supervisor.send_emergency_stop().await.map_err(lib_error)?;
+            Ok(Response::Done)
+        }
+        Request::CrashRecovery { uri } => {
+            let entry = attached(server, session, &uri)?;
+            entry.cf.supervisor.send_crash_recovery_request().await.map_err(lib_error)?;
             Ok(Response::Done)
         }
         Request::LinkStatistics { uri } => {

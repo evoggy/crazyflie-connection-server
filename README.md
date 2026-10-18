@@ -56,8 +56,10 @@ reads a parameter and subscribes to a log variable in about 40 lines.
 ## Status
 
 Prototype. Supported: scan, list, attach, params (get/set/watch, persistent
-state/store/clear, shared cache), log subscriptions, console, high-level
-commander (take-off/land/go-to/stop), arming, emergency stop, link
+state/store/clear, shared cache), log subscriptions (spread over as many log
+blocks as they need), console, high-level commander (take-off, land, go-to,
+stop, define and start trajectories), roll/pitch/yaw-rate/thrust setpoints,
+arming, emergency stop, crash recovery, lighthouse sweep angles, link
 statistics. Every client can send every command.
 
 For tools with their own connection code (cfcli's swarm runner),
