@@ -1,0 +1,13 @@
+[package]
+name = "crazyflie-connection-protocol"
+description = "Wire protocol between the Crazyflie connection server and its clients"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

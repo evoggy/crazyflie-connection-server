@@ -1,0 +1,21 @@
+[workspace]
+resolver = "3"
+members = ["crates/protocol", "crates/server"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/evoggy/crazyflie-connection-server"
+
+[workspace.dependencies]
+crazyflie-connection-protocol = { path = "crates/protocol", version = "0.1.0" }
+crazyflie-lib = "0.8.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+log = "0.4"
+env_logger = "0.11"
+thiserror = "2"
+clap = { version = "4", features = ["derive", "env"] }

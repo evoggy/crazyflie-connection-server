@@ -1,0 +1,28 @@
+[package]
+name = "crazyflie-connection-server"
+description = "Share Crazyradios and Crazyflie connections between programs, on this machine or across the network"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["server"]
+# Run the connection server in this process: modes `direct` and `shared`, and
+# `Server` for serving other programs. Pulls in crazyflie-lib, libusb and axum
+server = ["dep:crazyflie-lib", "dep:axum"]
+
+[dependencies]
+crazyflie-connection-protocol.workspace = true
+crazyflie-lib = { workspace = true, optional = true }
+axum = { version = "0.8", features = ["ws"], optional = true }
+serde_json.workspace = true
+tokio.workspace = true
+futures.workspace = true
+log.workspace = true
+thiserror.workspace = true
+tokio-tungstenite = "0.27"
+
+[dev-dependencies]
+clap.workspace = true
+env_logger.workspace = true
