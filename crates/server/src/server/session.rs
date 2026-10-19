@@ -1,7 +1,7 @@
 //! One client's view of the server: its attached Crazyflies and open streams
 
 use super::flash::{Image, Target};
-use super::{CfEntry, Server, parse_address};
+use super::{CfEntry, Server, memory, parse_address};
 use crazyflie_lib::Crazyflie;
 use crazyflie_lib::subsystems::log::{LogPeriod, LogStream};
 use crazyflie_connection_protocol::{
@@ -132,6 +132,10 @@ fn lib_error(e: crazyflie_lib::Error) -> String {
 }
 
 async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Request) -> Result<Response, String> {
+    if let Some(uri) = memory::uri_of(&request) {
+        let entry = attached(server, session, uri)?;
+        return memory::handle(&entry, request).await;
+    }
     match request {
         Request::Hello { name } => {
             *session.name.lock().unwrap() = name.clone();
@@ -319,6 +323,22 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
             watch(session, sub, server.watch_events());
             Ok(Response::Done)
         }
+        Request::LighthousePersist { uri, geometries, calibrations } => {
+            let entry = attached(server, session, &uri)?;
+            let lighthouse = &entry.cf.localization.lighthouse;
+            let persisted = lighthouse.persist_lighthouse_data(&geometries, &calibrations).await.map_err(lib_error)?;
+            Ok(Response::Bool { value: persisted })
+        }
+        // Handled above
+        Request::MemoryRead { .. }
+        | Request::MemoryWrite { .. }
+        | Request::OneWireRead { .. }
+        | Request::EepromConfigRead { .. }
+        | Request::EepromConfigWrite { .. }
+        | Request::LighthouseGeometryRead { .. }
+        | Request::LighthouseGeometryWrite { .. }
+        | Request::LighthouseCalibrationRead { .. }
+        | Request::LighthouseCalibrationWrite { .. } => unreachable!("a memory request"),
         Request::Platform { uri, command } => {
             server.platform(&normalize_uri(&uri)?, command, &session.name()).await?;
             Ok(Response::Done)

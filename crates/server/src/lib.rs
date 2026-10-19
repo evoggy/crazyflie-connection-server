@@ -29,6 +29,7 @@
 
 mod core;
 mod crazyflie;
+pub mod memory;
 #[cfg(feature = "server")]
 mod server;
 
@@ -71,6 +72,9 @@ pub enum Error {
     /// The server answered with something this client did not expect
     #[error("Unexpected reply from the server")]
     UnexpectedReply,
+    /// A value this API refuses before sending it
+    #[error("{0}")]
+    InvalidArgument(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

@@ -142,6 +142,26 @@ pub enum Request {
     /// take over and give back
     Watch { sub: u64 },
 
+    /// Read `length` bytes of memory `id` (see [AttachInfo::memories]) from `address`
+    MemoryRead { uri: String, id: u8, address: u32, length: u32 },
+    /// Write `data` (base64) to memory `id` at `address`
+    MemoryWrite { uri: String, id: u8, address: u32, data: String },
+    /// Read a deck's 1-wire memory `id`: its ids and elements (board name, revision, …)
+    OneWireRead { uri: String, id: u8 },
+    /// Read the EEPROM config memory `id`
+    EepromConfigRead { uri: String, id: u8 },
+    /// Write the EEPROM config memory `id`. The firmware applies it at boot
+    EepromConfigWrite { uri: String, id: u8, config: EepromConfig },
+    /// Read the geometry of base station `bs` from lighthouse memory `id`
+    LighthouseGeometryRead { uri: String, id: u8, bs: u8 },
+    LighthouseGeometryWrite { uri: String, id: u8, bs: u8, geometry: LighthouseBsGeometry },
+    /// Read the calibration of base station `bs` from lighthouse memory `id`
+    LighthouseCalibrationRead { uri: String, id: u8, bs: u8 },
+    LighthouseCalibrationWrite { uri: String, id: u8, bs: u8, calibration: LighthouseBsCalibration },
+    /// Store the geometries and calibrations of these base stations in the
+    /// Crazyflie's flash. Replies [Response::Bool]: whether the Crazyflie did
+    LighthousePersist { uri: String, geometries: Vec<u8>, calibrations: Vec<u8> },
+
     /// A command the Crazyflie's nRF51 handles, sent without connecting to it.
     /// Its clients are disconnected, except by [PlatformCommand::PowerOnStm32Domain].
     /// Fails if it doesn't answer
@@ -215,6 +235,13 @@ pub enum Response {
     Value { value: f64 },
     PersistentState(PersistentParamState),
     LinkStatistics(LinkStatistics),
+    /// Bytes, base64 encoded
+    Data { data: String },
+    Bool { value: bool },
+    OneWire(OneWireMemory),
+    EepromConfig(EepromConfig),
+    LighthouseGeometry(LighthouseBsGeometry),
+    LighthouseCalibration(LighthouseBsCalibration),
 }
 
 /// Stream payloads
@@ -273,6 +300,101 @@ pub struct AttachInfo {
     pub protocol_version: Option<u8>,
     pub params: Vec<TocItem>,
     pub log_vars: Vec<TocItem>,
+    /// The Crazyflie's memories, as listed when it was connected
+    #[serde(default)]
+    pub memories: Vec<MemoryInfo>,
+}
+
+/// One memory of a Crazyflie, see `crazyflie_lib::subsystems::memory::MemoryDevice`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryInfo {
+    pub id: u8,
+    #[serde(rename = "type")]
+    pub memory_type: MemoryType,
+    /// Size in bytes
+    pub size: u32,
+    /// Serial number, e.g. a deck's 1-wire ROM id, as hex
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serial: Option<String>,
+}
+
+/// Memory types, named as in `crazyflie_lib::subsystems::memory::MemoryType`
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[allow(clippy::upper_case_acronyms)]
+pub enum MemoryType {
+    #[serde(rename = "eeprom_config")]
+    EEPROMConfig,
+    OneWire,
+    DriverLed,
+    Loco,
+    Trajectory,
+    Loco2,
+    Lighthouse,
+    MemoryTester,
+    #[serde(rename = "micro_sd")]
+    MicroSD,
+    DriverLedTiming,
+    App,
+    DeckMemory,
+    #[serde(rename = "deck_ctrl_dfu")]
+    DeckCtrlDFU,
+    DeckCtrl,
+    DeckMultiranger,
+    DeckPaa3905,
+    #[serde(other)]
+    UNKNOWN,
+}
+
+/// A deck's 1-wire memory, see `crazyflie_lib::subsystems::memory::OwMemory`
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct OneWireMemory {
+    pub used_pins: u32,
+    pub vid: u8,
+    pub pid: u8,
+    /// e.g. `boardName`, `revision`
+    pub elements: BTreeMap<String, String>,
+}
+
+/// The EEPROM config, see `crazyflie_lib::subsystems::memory::EEPROMConfigMemory`
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EepromConfig {
+    pub radio_channel: u8,
+    /// 0: 250 kbit/s, 1: 1 Mbit/s, 2: 2 Mbit/s
+    pub radio_speed: u8,
+    /// 10 hex digits
+    pub radio_address: String,
+    pub pitch_trim: f32,
+    pub roll_trim: f32,
+}
+
+/// Where a lighthouse base station is, see
+/// `crazyflie_lib::subsystems::memory::LighthouseBsGeometry`
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct LighthouseBsGeometry {
+    pub origin: [f32; 3],
+    pub rotation_matrix: [[f32; 3]; 3],
+    pub valid: bool,
+}
+
+/// A lighthouse base station's calibration, see
+/// `crazyflie_lib::subsystems::memory::LighthouseBsCalibration`
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct LighthouseBsCalibration {
+    pub sweeps: [LighthouseCalibrationSweep; 2],
+    pub uid: u32,
+    pub valid: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct LighthouseCalibrationSweep {
+    pub phase: f32,
+    pub tilt: f32,
+    pub curve: f32,
+    pub gibmag: f32,
+    pub gibphase: f32,
+    pub ogeemag: f32,
+    pub ogeephase: f32,
 }
 
 /// One param or log variable
@@ -414,6 +536,15 @@ mod tests {
         assert!(normalize_uri("radio:///80/2M/E7").is_err());
         assert_eq!(normalize_uri("radio://1/88/2M/ABAD1DEA01").unwrap().channel(), Some(88));
         assert_eq!(normalize_uri("usb://0").unwrap().channel(), None);
+    }
+
+    #[test]
+    fn memory_types_by_name() {
+        let info: MemoryInfo = serde_json::from_str(r#"{"id":3,"type":"eeprom_config","size":21}"#).unwrap();
+        assert_eq!(info.memory_type, MemoryType::EEPROMConfig);
+        let info: MemoryInfo = serde_json::from_str(r#"{"id":4,"type":"something_new","size":1}"#).unwrap();
+        assert_eq!(info.memory_type, MemoryType::UNKNOWN);
+        assert_eq!(serde_json::to_string(&MemoryType::DeckCtrlDFU).unwrap(), r#""deck_ctrl_dfu""#);
     }
 
     #[test]

@@ -25,18 +25,19 @@ pub struct Crazyflie {
     pub localization: Localization,
     pub platform: Platform,
     pub link_service: LinkService,
+    pub memory: crate::memory::Memory,
     handle: Arc<Handle>,
     lost: watch::Receiver<Option<String>>,
 }
 
 /// What every subsystem needs: the connection and the Crazyflie's URI
-struct Handle {
+pub(crate) struct Handle {
     core: Arc<Core>,
-    uri: String,
+    pub(crate) uri: String,
 }
 
 impl Handle {
-    async fn call(&self, request: Request) -> Result<Response> {
+    pub(crate) async fn call(&self, request: Request) -> Result<Response> {
         self.core.call(request).await
     }
 
@@ -97,7 +98,7 @@ impl Crazyflie {
         };
         let lost = core.add_attached(&info.uri);
         let handle = Arc::new(Handle { core, uri: info.uri.clone() });
-        let AttachInfo { firmware_version, device_type, protocol_version, params, log_vars, .. } = info;
+        let AttachInfo { firmware_version, device_type, protocol_version, params, log_vars, memories, .. } = info;
         Ok(Self {
             param: Param { handle: handle.clone(), toc: toc(params) },
             log: Log { handle: handle.clone(), toc: toc(log_vars) },
@@ -108,6 +109,7 @@ impl Crazyflie {
             localization: Localization { lighthouse: Lighthouse { handle: handle.clone() } },
             platform: Platform { firmware_version, device_type, protocol_version },
             link_service: LinkService { handle: handle.clone() },
+            memory: crate::memory::Memory { handle: handle.clone(), memories },
             handle,
             lost,
         })
@@ -476,6 +478,20 @@ pub struct LighthouseAngles {
 }
 
 impl Lighthouse {
+    /// Store the geometries and calibrations of these base stations, from the
+    /// lighthouse memory, in the Crazyflie's flash. Returns whether it did
+    pub async fn persist_lighthouse_data(&self, geo_list: &[u8], calib_list: &[u8]) -> Result<bool> {
+        let request = Request::LighthousePersist {
+            uri: self.handle.uri.clone(),
+            geometries: geo_list.to_vec(),
+            calibrations: calib_list.to_vec(),
+        };
+        match self.handle.call(request).await? {
+            Response::Bool { value } => Ok(value),
+            _ => Err(Error::UnexpectedReply),
+        }
+    }
+
     /// Sweep angles as the Crazyflie sends them, which it only does while the
     /// `locSrv.enLhAngleStream` param is 1
     pub async fn angle_stream(&self) -> Result<BoxStream<'static, LighthouseAngleData>> {

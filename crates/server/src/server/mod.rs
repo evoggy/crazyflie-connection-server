@@ -11,6 +11,7 @@
 
 mod console;
 mod flash;
+mod memory;
 mod platform;
 mod session;
 mod toc;
@@ -158,10 +159,15 @@ pub(crate) struct CfEntry {
     cf: Arc<Crazyflie>,
     info: AttachInfo,
     console: Arc<console::ConsoleLines>,
+    /// Memory requests run one at a time, see [memory]
+    memory_turn: tokio::sync::Mutex<()>,
     /// Attached sessions: id → client name
     clients: Mutex<BTreeMap<u64, String>>,
     /// Set (under the `clients` lock) once the entry is being closed. Attaching then waits for `closed`
     closing: AtomicBool,
+    /// Attaches so far, so that a linger timer leaves a Crazyflie that was
+    /// attached to again after it started
+    attaches: AtomicU64,
     closed: watch::Sender<bool>,
     /// Why it was disconnected, set before `closed`
     lost: Mutex<Option<String>>,
@@ -303,6 +309,7 @@ impl Server {
                 let open = !entry.closing.load(Ordering::SeqCst);
                 if open {
                     clients.insert(session_id, name.to_owned());
+                    entry.attaches.fetch_add(1, Ordering::SeqCst);
                 }
                 open
             };
@@ -332,22 +339,27 @@ impl Server {
     fn close_later(&self, entry: Arc<CfEntry>) {
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             let server = self.clone();
+            let attaches = entry.attaches.load(Ordering::SeqCst);
             runtime.spawn(async move {
                 tokio::time::sleep(server.inner.config.linger).await;
-                server.close_if_unused(entry).await;
+                server.close_if_unused(entry, attaches).await;
             });
         }
     }
 
-    async fn close_if_unused(&self, entry: Arc<CfEntry>) {
+    /// Close the Crazyflie unless a client is attached, or attached since
+    /// there were `attaches` (its own linger timer then closes it)
+    async fn close_if_unused(&self, entry: Arc<CfEntry>, attaches: u64) {
         {
-            let mut cfs = self.inner.cfs.lock().unwrap();
             let clients = entry.clients.lock().unwrap();
-            if !clients.is_empty() || entry.closing.swap(true, Ordering::SeqCst) {
+            let attached_since = entry.attaches.load(Ordering::SeqCst) != attaches;
+            if !clients.is_empty() || attached_since || entry.closing.swap(true, Ordering::SeqCst) {
                 return;
             }
-            remove_if_same(&mut cfs, &entry);
         }
+        // It stays listed, closing, until the link is closed (`on_disconnected`
+        // removes it): an attach meanwhile waits for that and then connects
+        // again, instead of opening a second link to the Crazyflie
         info!("Disconnecting {} (no clients left)", entry.key);
         entry.cf.disconnect().await;
     }
@@ -530,6 +542,7 @@ impl Server {
             protocol_version: cf.platform.protocol_version().await.ok(),
             params,
             log_vars,
+            memories: memory::memories(&cf),
         };
         let console = console::ConsoleLines::start(&cf).await;
         let entry = Arc::new(CfEntry {
@@ -538,8 +551,10 @@ impl Server {
             cf,
             info,
             console,
+            memory_turn: tokio::sync::Mutex::new(()),
             clients: Mutex::new(BTreeMap::new()),
             closing: AtomicBool::new(false),
+            attaches: AtomicU64::new(0),
             closed: watch::Sender::new(false),
             lost: Mutex::new(None),
         });
