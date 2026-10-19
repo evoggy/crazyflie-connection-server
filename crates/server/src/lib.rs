@@ -42,7 +42,7 @@ pub use crazyflie_connection_protocol::{
 };
 
 #[cfg(feature = "server")]
-pub use crate::server::{Server, ServerConfig, Session, TocStore, serve, serve_on};
+pub use crate::server::{FileTocCache, Server, ServerConfig, Session, TocStore, serve, serve_on};
 /// The crazyflie-lib the server runs on, for [Client::adopt] and [Crazyflie::lib]
 #[cfg(feature = "server")]
 pub use crazyflie_lib;

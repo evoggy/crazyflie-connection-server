@@ -8,9 +8,60 @@
 
 use super::TocStore;
 use crazyflie_lib::TocCache;
+use log::warn;
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use tokio::sync::watch;
+
+/// TOCs in a directory, one `<key>.json` file each, so that they outlive
+/// the server (see [ServerConfig::with_toc_cache](super::ServerConfig::with_toc_cache)).
+/// The same layout as Swarmkeeper's TOC cache
+#[derive(Clone)]
+pub struct FileTocCache {
+    dir: PathBuf,
+}
+
+/// Distinguishes the temporary files of writes running at the same time
+static WRITES: AtomicU64 = AtomicU64::new(0);
+
+impl FileTocCache {
+    /// A cache in `dir`, which is created if needed
+    pub fn new(dir: impl Into<PathBuf>) -> std::io::Result<Self> {
+        let dir = dir.into();
+        std::fs::create_dir_all(&dir)?;
+        Ok(Self { dir })
+    }
+
+    pub fn dir(&self) -> &std::path::Path {
+        &self.dir
+    }
+
+    fn path(&self, key: &[u8]) -> PathBuf {
+        let hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
+        self.dir.join(format!("{hex}.json"))
+    }
+}
+
+impl TocCache for FileTocCache {
+    fn get_toc(&self, key: &[u8]) -> Option<String> {
+        std::fs::read_to_string(self.path(key)).ok()
+    }
+
+    fn store_toc(&self, key: &[u8], toc: &str) {
+        // Written to a temporary file and renamed, so that a reader never
+        // sees half a TOC
+        let path = self.path(key);
+        let n = WRITES.fetch_add(1, Ordering::Relaxed);
+        let temporary = path.with_extension(format!("json.{}-{n}.tmp", std::process::id()));
+        let stored = std::fs::write(&temporary, toc).and_then(|()| std::fs::rename(&temporary, &path));
+        if let Err(e) = stored {
+            let _ = std::fs::remove_file(&temporary);
+            warn!("Couldn't store a TOC in {}: {e}", path.display());
+        }
+    }
+}
 
 /// The server's TOC cache: the configured store, if any, and the TOCs seen
 /// since the server started, so that a store that doesn't keep them (a tool's
@@ -132,8 +183,22 @@ impl Waiting {
 
 #[cfg(test)]
 mod tests {
-    use super::{ProbeCache, ServerTocCache, TocDownloads};
+    use super::{FileTocCache, ProbeCache, ServerTocCache, TocDownloads};
     use crazyflie_lib::TocCache;
+
+    #[test]
+    fn file_cache_keeps_tocs() {
+        let dir = std::env::temp_dir().join(format!("ccs-toc-test-{}", std::process::id()));
+        let cache = FileTocCache::new(&dir).unwrap();
+        assert_eq!(cache.get_toc(&[0x01, 0xab]), None);
+        cache.store_toc(&[0x01, 0xab], r#"{"a":[1,8]}"#);
+        // Another instance on the same directory, as after a restart
+        let again = FileTocCache::new(&dir).unwrap();
+        assert_eq!(again.get_toc(&[0x01, 0xab]).as_deref(), Some(r#"{"a":[1,8]}"#));
+        assert!(dir.join("01ab.json").exists());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "no temporary file left");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn probe_answers_a_miss_with_an_empty_toc() {

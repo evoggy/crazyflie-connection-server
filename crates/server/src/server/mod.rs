@@ -18,6 +18,7 @@ mod toc;
 mod ws;
 
 pub use session::Session;
+pub use toc::FileTocCache;
 pub use ws::{serve, serve_on};
 
 use crazyflie_lib::crazyflie_link::crazyradio::Crazyradio;

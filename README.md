@@ -73,7 +73,8 @@ can send every command.
 Connecting a swarm: Crazyflies on (nearly) the same channel share a
 Crazyradio, all of them connect at the same time, and a firmware's TOCs are
 downloaded from one Crazyflie while the others with that firmware wait for
-the cache. Whether a param is persistent is asked for when a client needs
+the cache. `FileTocCache` keeps the TOCs on disk across restarts (`cfcli
+server run --toc-cache DIR`). Whether a param is persistent is asked for when a client needs
 it, not while connecting.
 
 For tools with their own connection code, `Client::adopt` serves a Crazyflie
