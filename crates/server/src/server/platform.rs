@@ -88,15 +88,34 @@ impl Server {
             PlatformCommand::PowerOffAll => format!("Powered off by {who}"),
             PlatformCommand::PowerOffStm32Domain => format!("Put to sleep by {who}"),
             PlatformCommand::PowerOnStm32Domain => {
-                return Crazyflie::power_on_stm32_domain(context, link_uri).await.map_err(|e| e.to_string());
+                // Its STM32 starts: like after a reboot, it is announced
+                // available once its firmware answers
+                Crazyflie::power_on_stm32_domain(context, link_uri).await.map_err(|e| e.to_string())?;
+                self.inner.asleep.lock().unwrap().remove(&uri.key);
+                let answered = self.firmware_answers(uri).await;
+                self.announce(Event::Available { uri: uri.key.clone(), connected: false });
+                return match answered {
+                    true => Ok(()),
+                    false => Err(format!("Woken up, but its firmware didn't answer within {FIRMWARE_START:?}")),
+                };
             }
         };
         if command != PlatformCommand::Reboot {
+            if command == PlatformCommand::PowerOffStm32Domain {
+                // Its clients get it back once it is woken up
+                let busy = format!("{} is asleep, put to sleep by {who}", uri.key);
+                self.announce(Event::Busy { uri: uri.key.clone(), reason: busy });
+            }
             self.take_offline(&uri.key, &reason).await;
             info!("{}: {reason}", uri.key);
             let sent = match command {
                 PlatformCommand::PowerOffAll => Crazyflie::power_off_all(context, link_uri).await,
                 _ => Crazyflie::power_off_stm32_domain(context, link_uri).await,
+            };
+            let mut asleep = self.inner.asleep.lock().unwrap();
+            match command {
+                PlatformCommand::PowerOffStm32Domain if sent.is_ok() => asleep.insert(uri.key.clone()),
+                _ => asleep.remove(&uri.key),
             };
             return sent.map_err(|e| e.to_string());
         }
@@ -114,6 +133,7 @@ impl Server {
             Err(e) => Err(e),
         };
         let connected = rebooted.is_ok() && was_connected && self.reconnect(uri).await;
+        self.inner.asleep.lock().unwrap().remove(&uri.key);
         self.unmark_busy(&uri.key);
         self.announce(Event::Available { uri: uri.key.clone(), connected });
         rebooted

@@ -63,7 +63,8 @@ start trajectories), roll/pitch/yaw-rate/thrust setpoints, arming, emergency
 stop, crash recovery, lighthouse sweep angles, link statistics, reboot and
 power off/sleep/wake up, memories (the list, raw reads and writes, decks'
 1-wire memories, the EEPROM config, lighthouse geometries and calibrations,
-named as in crazyflie-lib), and flashing the STM32 and nRF51 as a job that
+trajectories and Loco anchors, named as in crazyflie-lib), Loco Positioning
+packets to the anchors, and flashing the STM32 and nRF51 as a job that
 shares the Crazyradio with the other connections: one Crazyflie, or a swarm
 of one platform, by broadcast to the Crazyflies whose bootloaders take it.
 Clients can watch which Crazyflies jobs take over and give back. Every client

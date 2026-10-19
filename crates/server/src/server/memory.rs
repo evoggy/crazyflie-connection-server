@@ -12,8 +12,8 @@ use crazyflie_connection_protocol as protocol;
 use crazyflie_connection_protocol::{MemoryInfo, Request, Response};
 use crazyflie_lib::Crazyflie;
 use crazyflie_lib::subsystems::memory::{
-    self as mem, EEPROMConfigMemory, FromMemoryBackend, LighthouseMemory, MemoryDevice, OwMemory, RadioSpeed,
-    RawMemory,
+    self as mem, EEPROMConfigMemory, FromMemoryBackend, LighthouseMemory, LocoMemory2, MemoryDevice, OwMemory,
+    RadioSpeed, RawMemory, TrajectoryMemory,
 };
 
 /// The memory list of a Crazyflie, for its attach info
@@ -64,7 +64,11 @@ pub(super) fn uri_of(request: &Request) -> Option<&str> {
         | Request::LighthouseGeometryRead { uri, .. }
         | Request::LighthouseGeometryWrite { uri, .. }
         | Request::LighthouseCalibrationRead { uri, .. }
-        | Request::LighthouseCalibrationWrite { uri, .. } => Some(uri),
+        | Request::LighthouseCalibrationWrite { uri, .. }
+        | Request::TrajectoryWriteUncompressed { uri, .. }
+        | Request::TrajectoryWriteCompressed { uri, .. }
+        | Request::LocoReadIdList { uri, .. }
+        | Request::LocoReadAnchor { uri, .. } => Some(uri),
         _ => None,
     }
 }
@@ -174,6 +178,42 @@ pub(super) async fn handle(entry: &CfEntry, request: Request) -> Result<Response
             };
             with::<LighthouseMemory, _>(cf, id, async |lh| lh.write_calibration(bs, &calibration).await).await?;
             Ok(Response::Done)
+        }
+        Request::TrajectoryWriteUncompressed { id, start_addr, segments, .. } => {
+            let poly = |p: protocol::Poly| mem::Poly::new(p.values);
+            let segments: Vec<mem::Poly4D> = segments
+                .into_iter()
+                .map(|s| mem::Poly4D::new(s.duration, poly(s.x), poly(s.y), poly(s.z), poly(s.yaw)))
+                .collect();
+            let bytes = with::<TrajectoryMemory, _>(cf, id, async |trajectory| {
+                trajectory.write_uncompressed(&segments, start_addr as usize).await
+            })
+            .await?;
+            Ok(Response::Written { bytes: bytes as u64 })
+        }
+        Request::TrajectoryWriteCompressed { id, start_addr, start, segments, .. } => {
+            let start = mem::CompressedStart::new(start.x, start.y, start.z, start.yaw);
+            let segments = segments
+                .into_iter()
+                .map(|s| mem::CompressedSegment::new(s.duration, s.x, s.y, s.z, s.yaw))
+                .collect::<crazyflie_lib::Result<Vec<_>>>()
+                .map_err(|e| e.to_string())?;
+            let bytes = with::<TrajectoryMemory, _>(cf, id, async |trajectory| {
+                trajectory.write_compressed(&start, &segments, start_addr as usize).await
+            })
+            .await?;
+            Ok(Response::Written { bytes: bytes as u64 })
+        }
+        Request::LocoReadIdList { id, active, .. } => {
+            let ids = with::<LocoMemory2, _>(cf, id, async |loco| {
+                if active { loco.read_active_id_list().await } else { loco.read_id_list().await }
+            })
+            .await?;
+            Ok(Response::Ids { ids })
+        }
+        Request::LocoReadAnchor { id, anchor, .. } => {
+            let data = with::<LocoMemory2, _>(cf, id, async |loco| loco.read_anchor_data(anchor).await).await?;
+            Ok(Response::LocoAnchor(protocol::LocoAnchorData { position: data.position, is_valid: data.is_valid }))
         }
         _ => Err("Not a memory request".to_owned()),
     }

@@ -35,7 +35,7 @@ mod server;
 
 pub use crate::crazyflie::{
     Commander, Console, Crazyflie, HighLevelCommander, Lighthouse, LighthouseAngleData, LighthouseAngles, LinkService,
-    Localization, Log, LogData, LogStream, Param, Platform, Supervisor,
+    LocoPositioning, Localization, Log, LogData, LogStream, Param, Platform, Supervisor,
 };
 pub use crazyflie_connection_protocol::{
     CfInfo, DEFAULT_PORT, FlashStart, LinkStatistics, NormalizedUri, PersistentParamState, TocItem, normalize_uri,
@@ -288,12 +288,16 @@ impl Client {
     }
 
     /// Power off the STM32 and decks of the Crazyflie at `uri` (sleep). Its
-    /// nRF51 stays on the radio, see [Client::power_on_stm32_domain]
+    /// nRF51 stays on the radio, see [Client::power_on_stm32_domain]. Clients
+    /// attached to it are disconnected, and it is announced
+    /// [ServerEvent::Busy] until it is woken up
     pub async fn power_off_stm32_domain(&self, uri: &str) -> Result<()> {
         self.platform(uri, PlatformCommand::PowerOffStm32Domain).await
     }
 
-    /// Power the STM32 and decks of the Crazyflie at `uri` on again (wake up)
+    /// Power the STM32 and decks of the Crazyflie at `uri` on again (wake up).
+    /// Returns once its firmware answers, when it is also announced
+    /// [ServerEvent::Available]
     pub async fn power_on_stm32_domain(&self, uri: &str) -> Result<()> {
         self.platform(uri, PlatformCommand::PowerOnStm32Domain).await
     }

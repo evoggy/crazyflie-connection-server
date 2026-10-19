@@ -106,7 +106,10 @@ impl Crazyflie {
             commander: Commander { handle: handle.clone() },
             high_level_commander: HighLevelCommander { handle: handle.clone() },
             supervisor: Supervisor { handle: handle.clone() },
-            localization: Localization { lighthouse: Lighthouse { handle: handle.clone() } },
+            localization: Localization {
+                lighthouse: Lighthouse { handle: handle.clone() },
+                loco_positioning: LocoPositioning { handle: handle.clone() },
+            },
             platform: Platform { firmware_version, device_type, protocol_version },
             link_service: LinkService { handle: handle.clone() },
             memory: crate::memory::Memory { handle: handle.clone(), memories },
@@ -456,6 +459,20 @@ impl Supervisor {
 /// Localization systems
 pub struct Localization {
     pub lighthouse: Lighthouse,
+    pub loco_positioning: LocoPositioning,
+}
+
+/// Loco Positioning
+pub struct LocoPositioning {
+    handle: Arc<Handle>,
+}
+
+impl LocoPositioning {
+    /// Send a Loco Positioning Protocol packet to anchor `dest_id` through the Crazyflie
+    pub async fn send_short_lpp_packet(&self, dest_id: u8, data: &[u8]) -> Result<()> {
+        let uri = self.handle.uri.clone();
+        self.handle.call_done(Request::SendShortLppPacket { uri, dest_id, data: data.to_vec() }).await
+    }
 }
 
 /// Lighthouse positioning

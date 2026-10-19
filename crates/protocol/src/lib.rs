@@ -158,6 +158,26 @@ pub enum Request {
     /// Read the calibration of base station `bs` from lighthouse memory `id`
     LighthouseCalibrationRead { uri: String, id: u8, bs: u8 },
     LighthouseCalibrationWrite { uri: String, id: u8, bs: u8, calibration: LighthouseBsCalibration },
+    /// Write uncompressed trajectory segments to trajectory memory `id` at
+    /// `start_addr`. Replies [Response::Written]
+    TrajectoryWriteUncompressed { uri: String, id: u8, start_addr: u32, segments: Vec<Poly4D> },
+    /// Write a compressed trajectory to trajectory memory `id` at `start_addr`.
+    /// Replies [Response::Written]
+    TrajectoryWriteCompressed {
+        uri: String,
+        id: u8,
+        start_addr: u32,
+        start: CompressedStart,
+        segments: Vec<CompressedSegment>,
+    },
+    /// The anchor ids in Loco memory `id`: all configured ones, or the
+    /// `active` ones. Replies [Response::Ids]
+    LocoReadIdList { uri: String, id: u8, active: bool },
+    /// The position of `anchor` in Loco memory `id`
+    LocoReadAnchor { uri: String, id: u8, anchor: u8 },
+    /// Send a Loco Positioning Protocol packet to anchor `dest_id`, through the
+    /// Crazyflie (e.g. an anchor position)
+    SendShortLppPacket { uri: String, dest_id: u8, data: Vec<u8> },
     /// Store the geometries and calibrations of these base stations in the
     /// Crazyflie's flash. Replies [Response::Bool]: whether the Crazyflie did
     LighthousePersist { uri: String, geometries: Vec<u8>, calibrations: Vec<u8> },
@@ -179,9 +199,11 @@ pub enum PlatformCommand {
     /// Power off the whole Crazyflie, as the power button does. Only the
     /// button turns it on again
     PowerOffAll,
-    /// Power off the STM32 and decks (sleep). The nRF51 stays on the radio
+    /// Power off the STM32 and decks (sleep). The nRF51 stays on the radio.
+    /// The Crazyflie is announced busy, and attaching fails until it is woken up
     PowerOffStm32Domain,
-    /// Power the STM32 and decks on again (wake up)
+    /// Power the STM32 and decks on again (wake up). The reply comes once the
+    /// firmware answers; the Crazyflie is then announced available
     PowerOnStm32Domain,
 }
 
@@ -242,6 +264,10 @@ pub enum Response {
     EepromConfig(EepromConfig),
     LighthouseGeometry(LighthouseBsGeometry),
     LighthouseCalibration(LighthouseBsCalibration),
+    /// Bytes written
+    Written { bytes: u64 },
+    Ids { ids: Vec<u8> },
+    LocoAnchor(LocoAnchorData),
 }
 
 /// Stream payloads
@@ -384,6 +410,93 @@ pub struct LighthouseBsCalibration {
     pub sweeps: [LighthouseCalibrationSweep; 2],
     pub uid: u32,
     pub valid: bool,
+}
+
+/// A polynomial of up to 8 coefficients, see
+/// `crazyflie_lib::subsystems::memory::Poly`
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct Poly {
+    pub values: [f32; 8],
+}
+
+impl Poly {
+    pub fn new(values: [f32; 8]) -> Self {
+        Self { values }
+    }
+
+    /// The first 8 values, the rest zero
+    pub fn from_slice(values: &[f32]) -> Self {
+        let mut poly = Self::default();
+        let len = values.len().min(8);
+        poly.values[..len].copy_from_slice(&values[..len]);
+        poly
+    }
+}
+
+/// An uncompressed trajectory segment, see
+/// `crazyflie_lib::subsystems::memory::Poly4D`
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Poly4D {
+    /// Seconds
+    pub duration: f32,
+    pub x: Poly,
+    pub y: Poly,
+    pub z: Poly,
+    pub yaw: Poly,
+}
+
+impl Poly4D {
+    pub fn new(duration: f32, x: Poly, y: Poly, z: Poly, yaw: Poly) -> Self {
+        Self { duration, x, y, z, yaw }
+    }
+}
+
+/// Where a compressed trajectory starts, see
+/// `crazyflie_lib::subsystems::memory::CompressedStart`
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct CompressedStart {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub yaw: f32,
+}
+
+impl CompressedStart {
+    pub fn new(x: f32, y: f32, z: f32, yaw: f32) -> Self {
+        Self { x, y, z, yaw }
+    }
+}
+
+/// A compressed trajectory segment: the Bézier control points of each axis,
+/// 0, 1, 3 or 7 of them, see `crazyflie_lib::subsystems::memory::CompressedSegment`
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct CompressedSegment {
+    /// Seconds
+    pub duration: f32,
+    pub x: Vec<f32>,
+    pub y: Vec<f32>,
+    pub z: Vec<f32>,
+    pub yaw: Vec<f32>,
+}
+
+impl CompressedSegment {
+    /// Fails unless every axis has 0, 1, 3 or 7 control points
+    pub fn new(duration: f32, x: Vec<f32>, y: Vec<f32>, z: Vec<f32>, yaw: Vec<f32>) -> Result<Self, String> {
+        for axis in [&x, &y, &z, &yaw] {
+            if ![0, 1, 3, 7].contains(&axis.len()) {
+                return Err(format!("A compressed segment axis has {} control points, not 0, 1, 3 or 7", axis.len()));
+            }
+        }
+        Ok(Self { duration, x, y, z, yaw })
+    }
+}
+
+/// A Loco Positioning anchor, see `crazyflie_lib::subsystems::memory::LocoAnchorData`
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct LocoAnchorData {
+    /// Meters
+    pub position: [f32; 3],
+    pub is_valid: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]

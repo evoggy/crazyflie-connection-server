@@ -131,6 +131,8 @@ struct Inner {
     cfs: Mutex<HashMap<String, Arc<OnceCell<Arc<CfEntry>>>>>,
     /// Crazyflies a job (flashing) has taken over: key → why they can't be attached to
     busy: Mutex<HashMap<String, String>>,
+    /// Crazyflies put to sleep (STM32 off): attaching fails until they are woken up
+    asleep: Mutex<std::collections::HashSet<String>>,
     /// [Event::Busy] and [Event::Available], for the clients that watch them
     events: tokio::sync::broadcast::Sender<Event>,
     /// Broadcast flashes so far: each uses its own broadcast address
@@ -203,6 +205,7 @@ impl Server {
                 toc_downloads: TocDownloads::default(),
                 cfs: Mutex::new(HashMap::new()),
                 busy: Mutex::new(HashMap::new()),
+                asleep: Mutex::new(std::collections::HashSet::new()),
                 events: tokio::sync::broadcast::Sender::new(64),
                 broadcasts: AtomicU8::new(0),
                 sessions: Mutex::new(HashMap::new()),
@@ -300,6 +303,14 @@ impl Server {
     pub(crate) async fn attach(&self, session_id: u64, name: &str, uri: &NormalizedUri) -> Result<Arc<CfEntry>, String> {
         if let Some(reason) = self.inner.busy.lock().unwrap().get(&uri.key) {
             return Err(reason.clone());
+        }
+        // Unless it was woken up some other way (its button)
+        let asleep = self.inner.asleep.lock().unwrap().contains(&uri.key);
+        if asleep {
+            if !self.firmware_answers_within(uri, Duration::from_secs(1)).await {
+                return Err(format!("{} is asleep (its STM32 is off). Wake it up first", uri.key));
+            }
+            self.inner.asleep.lock().unwrap().remove(&uri.key);
         }
         loop {
             let cell = self.inner.cfs.lock().unwrap().entry(uri.key.clone()).or_default().clone();
@@ -618,6 +629,11 @@ impl Server {
     /// a link echo. Connecting before then can wait for TOC answers the
     /// starting firmware never sends, while the nRF51 already acks the packets
     async fn firmware_answers(&self, uri: &NormalizedUri) -> bool {
+        self.firmware_answers_within(uri, FIRMWARE_START).await
+    }
+
+    /// [Server::firmware_answers], waiting at most `wait`
+    async fn firmware_answers_within(&self, uri: &NormalizedUri, wait: Duration) -> bool {
         let Some(path) = uri.key.strip_prefix("radio:///") else {
             return true;
         };
@@ -626,7 +642,7 @@ impl Server {
         };
         let options = uri.options.as_ref().map(|o| format!("?{o}")).unwrap_or_default();
         let link_uri = format!("radio://{}/{path}{options}", slot.radio);
-        let deadline = tokio::time::Instant::now() + FIRMWARE_START;
+        let deadline = tokio::time::Instant::now() + wait;
         let mut answered = false;
         while !answered && tokio::time::Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(500)).await;

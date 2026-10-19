@@ -18,11 +18,12 @@ use crate::crazyflie::Handle;
 use crate::{Error, Result};
 use base64::Engine as _;
 use crazyflie_connection_protocol::{EepromConfig, OneWireMemory, Request, Response};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 pub use crazyflie_connection_protocol::{
-    LighthouseBsCalibration, LighthouseBsGeometry, LighthouseCalibrationSweep, MemoryInfo, MemoryType,
+    CompressedSegment, CompressedStart, LighthouseBsCalibration, LighthouseBsGeometry, LighthouseCalibrationSweep,
+    LocoAnchorData, MemoryInfo, MemoryType, Poly, Poly4D,
 };
 
 /// The memories of a Crazyflie
@@ -38,10 +39,11 @@ impl Memory {
         self.memories.iter().filter(|memory| memory_type.is_none_or(|t| memory.memory_type == t)).collect()
     }
 
-    /// Open a memory as a [RawMemory], [OwMemory], [EEPROMConfigMemory] or
-    /// [LighthouseMemory]. The 1-wire and EEPROM config memories are read now
+    /// Open a memory as a [RawMemory], [OwMemory], [EEPROMConfigMemory],
+    /// [LighthouseMemory], [TrajectoryMemory] or [LocoMemory2]. The 1-wire and
+    /// EEPROM config memories are read now
     pub async fn open_memory<T: OpenMemory>(&self, memory: &MemoryInfo) -> Result<T> {
-        T::open(Device { handle: self.handle.clone(), id: memory.id }).await
+        T::open(Device { handle: self.handle.clone(), id: memory.id, size: memory.size }).await
     }
 }
 
@@ -49,6 +51,7 @@ impl Memory {
 pub struct Device {
     handle: Arc<Handle>,
     id: u8,
+    size: u32,
 }
 
 impl Device {
@@ -243,7 +246,70 @@ impl OpenMemory for LighthouseMemory {
     }
 }
 
+/// Base stations crazyflie-lib's lighthouse memory has room for
+pub const MAX_BASE_STATIONS: u8 = 16;
+
 impl LighthouseMemory {
+    /// How many base stations the firmware has room for (IDs 0 to N-1), from
+    /// the memory's size: the calibrations start at 0x1000, 61 bytes each.
+    /// `None` when the size doesn't tell
+    pub fn supported_base_stations(&self) -> Option<u8> {
+        const CALIB_START: usize = 0x1000;
+        const CALIB_SIZE: usize = 61;
+        let calibrations = (self.device.size as usize).checked_sub(CALIB_START)?;
+        if calibrations == 0 || calibrations % CALIB_SIZE != 0 {
+            return None;
+        }
+        Some((calibrations / CALIB_SIZE).min(MAX_BASE_STATIONS as usize) as u8)
+    }
+
+    /// The valid geometries. Without a [LighthouseMemory::supported_base_stations],
+    /// all 16 IDs are tried and the ones that fail are skipped
+    pub async fn read_all_geometries(&self) -> Result<HashMap<u8, LighthouseBsGeometry>> {
+        let mut geometries = HashMap::new();
+        for bs in 0..self.supported_base_stations().unwrap_or(MAX_BASE_STATIONS) {
+            match self.read_geometry(bs).await {
+                Ok(geometry) if geometry.valid => {
+                    geometries.insert(bs, geometry);
+                }
+                Ok(_) => {}
+                Err(_) if self.supported_base_stations().is_none() => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(geometries)
+    }
+
+    /// The valid calibrations, like [LighthouseMemory::read_all_geometries]
+    pub async fn read_all_calibrations(&self) -> Result<HashMap<u8, LighthouseBsCalibration>> {
+        let mut calibrations = HashMap::new();
+        for bs in 0..self.supported_base_stations().unwrap_or(MAX_BASE_STATIONS) {
+            match self.read_calibration(bs).await {
+                Ok(calibration) if calibration.valid => {
+                    calibrations.insert(bs, calibration);
+                }
+                Ok(_) => {}
+                Err(_) if self.supported_base_stations().is_none() => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(calibrations)
+    }
+
+    pub async fn write_geometries(&self, geometries: &HashMap<u8, LighthouseBsGeometry>) -> Result<()> {
+        for (bs, geometry) in geometries {
+            self.write_geometry(*bs, geometry).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn write_calibrations(&self, calibrations: &HashMap<u8, LighthouseBsCalibration>) -> Result<()> {
+        for (bs, calibration) in calibrations {
+            self.write_calibration(*bs, calibration).await?;
+        }
+        Ok(())
+    }
+
     pub async fn read_geometry(&self, bs: u8) -> Result<LighthouseBsGeometry> {
         match self.device.call(|uri, id| Request::LighthouseGeometryRead { uri, id, bs }).await? {
             Response::LighthouseGeometry(geometry) => Ok(geometry),
@@ -266,5 +332,131 @@ impl LighthouseMemory {
     pub async fn write_calibration(&self, bs: u8, calibration: &LighthouseBsCalibration) -> Result<()> {
         let calibration = calibration.clone();
         self.device.call_done(|uri, id| Request::LighthouseCalibrationWrite { uri, id, bs, calibration }).await
+    }
+}
+
+/// The trajectory memory of the high-level commander
+pub struct TrajectoryMemory {
+    device: Device,
+}
+
+impl OpenMemory for TrajectoryMemory {
+    async fn open(device: Device) -> Result<Self> {
+        Ok(Self { device })
+    }
+}
+
+/// Bytes an uncompressed segment takes in the trajectory memory: 33 floats
+pub const POLY4D_BYTES: usize = 132;
+
+/// Uncompressed segments per request of
+/// [TrajectoryMemory::write_uncompressed_with_progress], about 1 kB
+const SEGMENTS_PER_WRITE: usize = 7;
+
+impl TrajectoryMemory {
+    /// Write uncompressed segments at `start_addr`. Returns the bytes written
+    pub async fn write_uncompressed(&self, segments: &[Poly4D], start_addr: usize) -> Result<usize> {
+        let (segments, start_addr) = (segments.to_vec(), start_addr as u32);
+        let reply = self
+            .device
+            .call(|uri, id| Request::TrajectoryWriteUncompressed { uri, id, start_addr, segments })
+            .await?;
+        written(reply)
+    }
+
+    /// [TrajectoryMemory::write_uncompressed] in requests of about 1 kB,
+    /// calling `progress` with the bytes written so far and the total after each
+    pub async fn write_uncompressed_with_progress(
+        &self,
+        segments: &[Poly4D],
+        start_addr: usize,
+        mut progress: impl FnMut(usize, usize),
+    ) -> Result<usize> {
+        let total = segments.len() * POLY4D_BYTES;
+        let mut done = 0;
+        for batch in segments.chunks(SEGMENTS_PER_WRITE) {
+            done += self.write_uncompressed(batch, start_addr + done).await?;
+            progress(done, total);
+        }
+        Ok(done)
+    }
+
+    /// Write a compressed trajectory, `start` and then `segments`, at
+    /// `start_addr`. Returns the bytes written
+    pub async fn write_compressed(
+        &self,
+        start: &CompressedStart,
+        segments: &[CompressedSegment],
+        start_addr: usize,
+    ) -> Result<usize> {
+        let (start, segments, start_addr) = (*start, segments.to_vec(), start_addr as u32);
+        let reply = self
+            .device
+            .call(|uri, id| Request::TrajectoryWriteCompressed { uri, id, start_addr, start, segments })
+            .await?;
+        written(reply)
+    }
+}
+
+fn written(reply: Response) -> Result<usize> {
+    match reply {
+        Response::Written { bytes } => Ok(bytes as usize),
+        _ => Err(Error::UnexpectedReply),
+    }
+}
+
+/// The Loco Positioning memory: the anchors and their positions
+pub struct LocoMemory2 {
+    device: Device,
+}
+
+/// Every anchor in the Loco memory, see [LocoMemory2::read_all]
+#[derive(Debug, Clone)]
+pub struct LocoSystemData {
+    pub anchor_ids: Vec<u8>,
+    pub active_anchor_ids: Vec<u8>,
+    pub anchors: HashMap<u8, LocoAnchorData>,
+}
+
+impl OpenMemory for LocoMemory2 {
+    async fn open(device: Device) -> Result<Self> {
+        Ok(Self { device })
+    }
+}
+
+impl LocoMemory2 {
+    /// The ids of the configured anchors
+    pub async fn read_id_list(&self) -> Result<Vec<u8>> {
+        self.ids(false).await
+    }
+
+    /// The ids of the anchors the Crazyflie hears now
+    pub async fn read_active_id_list(&self) -> Result<Vec<u8>> {
+        self.ids(true).await
+    }
+
+    async fn ids(&self, active: bool) -> Result<Vec<u8>> {
+        match self.device.call(|uri, id| Request::LocoReadIdList { uri, id, active }).await? {
+            Response::Ids { ids } => Ok(ids),
+            _ => Err(Error::UnexpectedReply),
+        }
+    }
+
+    pub async fn read_anchor_data(&self, anchor: u8) -> Result<LocoAnchorData> {
+        match self.device.call(|uri, id| Request::LocoReadAnchor { uri, id, anchor }).await? {
+            Response::LocoAnchor(data) => Ok(data),
+            _ => Err(Error::UnexpectedReply),
+        }
+    }
+
+    /// The id lists and every configured anchor's data
+    pub async fn read_all(&self) -> Result<LocoSystemData> {
+        let anchor_ids = self.read_id_list().await?;
+        let active_anchor_ids = self.read_active_id_list().await?;
+        let mut anchors = HashMap::new();
+        for id in &anchor_ids {
+            anchors.insert(*id, self.read_anchor_data(*id).await?);
+        }
+        Ok(LocoSystemData { anchor_ids, active_anchor_ids, anchors })
     }
 }

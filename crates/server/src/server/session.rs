@@ -323,6 +323,11 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
             watch(session, sub, server.watch_events());
             Ok(Response::Done)
         }
+        Request::SendShortLppPacket { uri, dest_id, data } => {
+            let entry = attached(server, session, &uri)?;
+            entry.cf.localization.loco_positioning.send_short_lpp_packet(dest_id, &data).await.map_err(lib_error)?;
+            Ok(Response::Done)
+        }
         Request::LighthousePersist { uri, geometries, calibrations } => {
             let entry = attached(server, session, &uri)?;
             let lighthouse = &entry.cf.localization.lighthouse;
@@ -338,7 +343,11 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
         | Request::LighthouseGeometryRead { .. }
         | Request::LighthouseGeometryWrite { .. }
         | Request::LighthouseCalibrationRead { .. }
-        | Request::LighthouseCalibrationWrite { .. } => unreachable!("a memory request"),
+        | Request::LighthouseCalibrationWrite { .. }
+        | Request::TrajectoryWriteUncompressed { .. }
+        | Request::TrajectoryWriteCompressed { .. }
+        | Request::LocoReadIdList { .. }
+        | Request::LocoReadAnchor { .. } => unreachable!("a memory request"),
         Request::Platform { uri, command } => {
             server.platform(&normalize_uri(&uri)?, command, &session.name()).await?;
             Ok(Response::Done)
