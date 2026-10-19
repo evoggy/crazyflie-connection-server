@@ -294,9 +294,9 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
             entry.cf.supervisor.send_crash_recovery_request().await.map_err(lib_error)?;
             Ok(Response::Done)
         }
-        Request::Flash { uri, sub, images } => {
+        Request::Flash { uris, sub, images } => {
             use base64::Engine as _;
-            let uri = normalize_uri(&uri)?;
+            let uris = uris.iter().map(|uri| normalize_uri(uri)).collect::<Result<Vec<_>, String>>()?;
             let images = images
                 .into_iter()
                 .map(|image| {
@@ -309,7 +309,7 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
                     })
                 })
                 .collect::<Result<Vec<_>, String>>()?;
-            server.start_flash(uri, &session.name(), images, session.tx.clone(), sub)?;
+            server.start_flash(uris, &session.name(), images, session.tx.clone(), sub)?;
             Ok(Response::Done)
         }
         Request::Watch { sub } => {

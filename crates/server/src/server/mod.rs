@@ -22,13 +22,16 @@ use crazyflie_lib::{Crazyflie, TocCache};
 use crazyflie_connection_protocol::{AttachInfo, CfInfo, Event, NormalizedUri, TocItem, normalize_uri};
 use log::{info, warn};
 use std::collections::{BTreeMap, HashMap};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::Duration;
 use tokio::sync::{OnceCell, watch};
 
 /// How long connecting a Crazyflie may take, TOC download included
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a Crazyflie restarted by a job gets to start its firmware. The
+/// nRF51 delays the start by 5 s when an AI-deck is attached
+const FIRMWARE_START: Duration = Duration::from_secs(15);
 
 /// Server settings
 #[derive(Clone)]
@@ -115,6 +118,8 @@ struct Inner {
     busy: Mutex<HashMap<String, String>>,
     /// [Event::Busy] and [Event::Available], for the clients that watch them
     events: tokio::sync::broadcast::Sender<Event>,
+    /// Broadcast flashes so far: each uses its own broadcast address
+    broadcasts: AtomicU8,
     sessions: Mutex<HashMap<u64, Weak<session::SessionShared>>>,
     next_session: AtomicU64,
     toc_cache: ServerTocCache,
@@ -167,8 +172,9 @@ impl Server {
                 _radios: radios,
                 radio_load: Mutex::new(radio_load),
                 cfs: Mutex::new(HashMap::new()),
-            busy: Mutex::new(HashMap::new()),
-            events: tokio::sync::broadcast::Sender::new(64),
+                busy: Mutex::new(HashMap::new()),
+                events: tokio::sync::broadcast::Sender::new(64),
+                broadcasts: AtomicU8::new(0),
                 sessions: Mutex::new(HashMap::new()),
                 next_session: AtomicU64::new(1),
                 toc_cache,
@@ -478,12 +484,18 @@ impl Server {
         self.inner.events.subscribe()
     }
 
-    /// Connect a Crazyflie again after a job, so that clients attach to it at
-    /// once. It is closed after the linger time if none does
+    /// Connect a Crazyflie again after a job, once its firmware answers, so
+    /// that clients attach to it at once. It is closed after the linger time
+    /// if none does
     async fn reconnect(&self, uri: &NormalizedUri) -> bool {
-        for _ in 0..3 {
-            // The firmware starts in about a second
-            tokio::time::sleep(Duration::from_secs(1)).await;
+        if !self.firmware_answers(uri).await {
+            warn!("Reconnecting after the job: {} didn't answer within {FIRMWARE_START:?}", uri.key);
+            return false;
+        }
+        for attempt in 0..3 {
+            if attempt > 0 {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
             let cell = self.inner.cfs.lock().unwrap().entry(uri.key.clone()).or_default().clone();
             match cell.get_or_try_init(|| self.connect(uri)).await {
                 Ok(entry) => {
@@ -496,13 +508,38 @@ impl Server {
         false
     }
 
+    /// Wait until the firmware of a Crazyflie that was just restarted answers
+    /// a link echo. Connecting before then can wait for TOC answers the
+    /// starting firmware never sends, while the nRF51 already acks the packets
+    async fn firmware_answers(&self, uri: &NormalizedUri) -> bool {
+        let Some(path) = uri.key.strip_prefix("radio:///") else {
+            return true;
+        };
+        let Ok(radio) = self.pick_radio(uri.radio).await else {
+            return false;
+        };
+        let options = uri.options.as_ref().map(|o| format!("?{o}")).unwrap_or_default();
+        let link_uri = format!("radio://{radio}/{path}{options}");
+        let deadline = tokio::time::Instant::now() + FIRMWARE_START;
+        let mut answered = false;
+        while !answered && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            if let Ok(link) = self.inner.link_context.open_link(&link_uri).await {
+                answered = echoes(&link).await;
+                link.close().await;
+            }
+        }
+        self.release_radio(Some(radio));
+        answered
+    }
+
     /// Disconnect the Crazyflie at `key`, if connected, telling its clients
-    /// `reason`, and return the radio it was on
-    async fn take_offline(&self, key: &str, reason: &str) -> Option<usize> {
+    /// `reason`, and return the radio it was on (`None` for one adopted)
+    async fn take_offline(&self, key: &str, reason: &str) -> Option<Option<usize>> {
         let entry = self.entry(key)?;
         self.on_disconnected(&entry, reason.to_owned());
         entry.cf.disconnect().await;
-        entry.radio
+        Some(entry.radio)
     }
 
     fn on_disconnected(&self, entry: &Arc<CfEntry>, reason: String) {
@@ -574,6 +611,28 @@ fn remove_if_same(cfs: &mut HashMap<String, Arc<OnceCell<Arc<CfEntry>>>>, entry:
 
 fn toc_item(name: String, value_type: crazyflie_lib::ValueType, writable: bool, persistent: bool) -> TocItem {
     TocItem { name, value_type: format!("{value_type:?}").to_lowercase(), writable, persistent }
+}
+
+/// Whether the firmware behind `link` answers a link echo (CRTP port 15, channel 0)
+async fn echoes(link: &crazyflie_lib::crazyflie_link::Connection) -> bool {
+    use crazyflie_lib::crazyflie_link::Packet;
+    for _ in 0..3 {
+        if link.send_packet(Packet::new(15, 0, vec![0xEC])).await.is_err() {
+            return false;
+        }
+        let answer = tokio::time::timeout(Duration::from_millis(200), async {
+            while let Ok(packet) = link.recv_packet().await {
+                if packet.get_port() == 15 && packet.get_channel() == 0 {
+                    return true;
+                }
+            }
+            false
+        });
+        if answer.await == Ok(true) {
+            return true;
+        }
+    }
+    false
 }
 
 const RADIOS_BUSY: &str = "Every Crazyradio is in use by another program (a connection server?)";

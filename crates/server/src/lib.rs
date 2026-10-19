@@ -293,7 +293,25 @@ impl Client {
     /// Programs attached to the Crazyflie are disconnected. The job runs on the
     /// server and finishes even if this program goes away. `progress` is
     /// called as it goes
-    pub async fn flash(&self, uri: &str, images: Vec<FlashImage>, mut progress: impl FnMut(FlashProgress)) -> Result<()> {
+    pub async fn flash(&self, uri: &str, images: Vec<FlashImage>, progress: impl FnMut(FlashProgress)) -> Result<()> {
+        match self.flash_swarm(&[uri], images, progress).await?.pop() {
+            Some(Ok(_)) => Ok(()),
+            Some(Err(reason)) => Err(Error::Server(reason)),
+            None => Err(Error::UnexpectedReply),
+        }
+    }
+
+    /// Flash the same firmware to the Crazyflies at `uris`, radio URIs of one
+    /// platform, as one job: like [Client::flash], but the Crazyflies whose
+    /// bootloaders take broadcast get each image at the same time, which takes
+    /// as long for any number of them. Returns, for each of `uris` in order,
+    /// how it was flashed (e.g. `broadcast`) or why not
+    pub async fn flash_swarm(
+        &self,
+        uris: &[&str],
+        images: Vec<FlashImage>,
+        mut progress: impl FnMut(FlashProgress),
+    ) -> Result<Vec<std::result::Result<String, String>>> {
         use base64::Engine as _;
         let images = images
             .into_iter()
@@ -303,20 +321,35 @@ impl Client {
                 data: base64::engine::general_purpose::STANDARD.encode(&image.data),
             })
             .collect();
+        let keys: Vec<String> = uris
+            .iter()
+            .map(|uri| normalize_uri(uri).map(|uri| uri.key))
+            .collect::<std::result::Result<_, String>>()
+            .map_err(Error::Server)?;
         let (guard, mut events) = self.core.open_server_stream();
-        match self.core.call(Request::Flash { uri: uri.to_owned(), sub: guard.sub(), images }).await? {
+        let uris = uris.iter().map(|uri| uri.to_string()).collect();
+        match self.core.call(Request::Flash { uris, sub: guard.sub(), images }).await? {
             Response::Done => {}
             _ => return Err(Error::UnexpectedReply),
         }
+        let mut results: Vec<Option<std::result::Result<String, String>>> = keys.iter().map(|_| None).collect();
+        let mut set = |uri: &str, result| {
+            if let Some(index) = keys.iter().position(|key| key == uri) {
+                results[index] = Some(result);
+            }
+        };
         loop {
             match events.recv().await {
-                Some(Event::Progress { step, done, total }) => progress(FlashProgress { step, done, total }),
-                Some(Event::Done) => return Ok(()),
+                Some(Event::Progress { uri, step, done, total }) => progress(FlashProgress { uri, step, done, total }),
+                Some(Event::Flashed { uri, how }) => set(&uri, Ok(how)),
+                Some(Event::FlashFailed { uri, reason }) => set(&uri, Err(reason)),
+                Some(Event::Done) => break,
                 Some(Event::Ended { reason }) => return Err(Error::Server(reason)),
                 Some(_) => continue,
                 None => return Err(Error::ConnectionLost),
             }
         }
+        Ok(results.into_iter().map(|result| result.unwrap_or_else(|| Err("No result from the server".to_owned()))).collect())
     }
 }
 
@@ -331,7 +364,7 @@ pub enum ServerEvent {
     Available { uri: String, connected: bool },
 }
 
-/// A firmware image for [Client::flash]
+/// A firmware image for [Client::flash] and [Client::flash_swarm]
 #[derive(Debug, Clone)]
 pub struct FlashImage {
     /// `stm32` or `nrf51`
@@ -341,9 +374,11 @@ pub struct FlashImage {
     pub data: Vec<u8>,
 }
 
-/// How far [Client::flash] is
+/// How far [Client::flash] or [Client::flash_swarm] is
 #[derive(Debug, Clone)]
 pub struct FlashProgress {
+    /// The Crazyflie it is about; `None` for all of them (e.g. a broadcast)
+    pub uri: Option<String>,
     /// What the job does now, e.g. `Flashing stm32`
     pub step: String,
     /// Bytes written so far while flashing, else 0 or 1 of 1

@@ -125,12 +125,15 @@ pub enum Request {
 
     LinkStatistics { uri: String },
 
-    /// Restart the Crazyflie into its bootloader, flash the images and restart
-    /// it into its firmware, as a job on stream `sub`: [Event::Progress], then
-    /// [Event::Done] or [Event::Ended]. Clients attached to the Crazyflie are
+    /// Restart the Crazyflies into their bootloaders, flash the images to each
+    /// and restart them into their firmware, as a job on stream `sub`:
+    /// [Event::Progress], one [Event::Flashed] or [Event::FlashFailed] per
+    /// Crazyflie, then [Event::Done]. The images are for one platform. The
+    /// Crazyflies whose bootloaders take broadcast get each image at the same
+    /// time, the others one after another. Clients attached to them are
     /// disconnected, and attaching and scanning are refused until the job is
     /// done. The job finishes even if the client that started it goes away
-    Flash { uri: String, sub: u64, images: Vec<FlashImage> },
+    Flash { uris: Vec<String>, sub: u64, images: Vec<FlashImage> },
 
     /// Stream of [Event::Busy] and [Event::Available]: the Crazyflies that jobs
     /// take over and give back
@@ -198,8 +201,19 @@ pub enum Event {
     Console { line: String },
     /// Sweep angles of the four sensors, in radians, from one base station
     LighthouseAngles { base_station: u8, x: [f32; 4], y: [f32; 4] },
-    /// How far a job is: `done` of `total` for its current `step`
-    Progress { step: String, done: u64, total: u64 },
+    /// How far a job is: `done` of `total` for its current `step`, on the
+    /// Crazyflie at `uri`, or on all of them (e.g. a broadcast) without one
+    Progress {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        uri: Option<String>,
+        step: String,
+        done: u64,
+        total: u64,
+    },
+    /// A Crazyflie of a flash job was flashed, `how`: e.g. `broadcast`
+    Flashed { uri: String, how: String },
+    /// Flashing a Crazyflie of a flash job failed
+    FlashFailed { uri: String, reason: String },
     /// A job finished
     Done,
     /// A job took the Crazyflie over (e.g. flashing): attaching to it fails
@@ -208,8 +222,7 @@ pub enum Event {
     /// The job on the Crazyflie is done. `connected`: the server connected it
     /// again, so attaching to it is immediate
     Available { uri: String, connected: bool },
-    /// The stream ended on the server side (disconnect, log error, …), or a
-    /// job failed
+    /// The stream ended on the server side (disconnect, log error, …)
     Ended { reason: String },
 }
 
