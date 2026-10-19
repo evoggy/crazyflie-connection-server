@@ -47,7 +47,7 @@ pub use crate::server::{Server, ServerConfig, Session, TocStore, serve, serve_on
 pub use crazyflie_lib;
 
 use crate::core::Core;
-use crazyflie_connection_protocol::{Event, Request, Response};
+use crazyflie_connection_protocol::{Event, PlatformCommand, Request, Response};
 use std::sync::Arc;
 
 /// Environment variable read by [Client::from_env]
@@ -255,6 +255,48 @@ impl Client {
             Response::Scan { found } => Ok(found),
             _ => Err(Error::UnexpectedReply),
         }
+    }
+
+    /// Which of the Crazyflies at `uris` answer: one packet each (a few
+    /// tries), without connecting. The ones the server is connected to answer
+    /// without radio traffic, ones a job has taken over don't. URIs are
+    /// normalized in the result
+    pub async fn scan_selected(&self, uris: &[&str]) -> Result<Vec<CfInfo>> {
+        let uris = uris.iter().map(|uri| uri.to_string()).collect();
+        match self.core.call(Request::ScanSelected { uris }).await? {
+            Response::Scan { found } => Ok(found),
+            _ => Err(Error::UnexpectedReply),
+        }
+    }
+
+    /// Restart the firmware of the Crazyflie at `uri`, a radio URI. Clients
+    /// attached to it are disconnected; the server connects it again if it was
+    /// connected, and announces it [ServerEvent::Available]. Returns once the
+    /// firmware answers again
+    pub async fn reboot(&self, uri: &str) -> Result<()> {
+        self.platform(uri, PlatformCommand::Reboot).await
+    }
+
+    /// Power off the Crazyflie at `uri` completely, as its power button
+    /// does: it can't be woken up by radio after this
+    pub async fn power_off_all(&self, uri: &str) -> Result<()> {
+        self.platform(uri, PlatformCommand::PowerOffAll).await
+    }
+
+    /// Power off the STM32 and decks of the Crazyflie at `uri` (sleep). Its
+    /// nRF51 stays on the radio, see [Client::power_on_stm32_domain]
+    pub async fn power_off_stm32_domain(&self, uri: &str) -> Result<()> {
+        self.platform(uri, PlatformCommand::PowerOffStm32Domain).await
+    }
+
+    /// Power the STM32 and decks of the Crazyflie at `uri` on again (wake up)
+    pub async fn power_on_stm32_domain(&self, uri: &str) -> Result<()> {
+        self.platform(uri, PlatformCommand::PowerOnStm32Domain).await
+    }
+
+    async fn platform(&self, uri: &str, command: PlatformCommand) -> Result<()> {
+        self.core.call(Request::Platform { uri: uri.to_owned(), command }).await?;
+        Ok(())
     }
 
     /// The Crazyflies the server is connected to, with their clients

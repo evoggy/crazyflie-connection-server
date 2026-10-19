@@ -53,6 +53,9 @@ pub enum Request {
     Hello { name: String },
     /// Scan all channels for Crazyflies at an address (default E7E7E7E7E7)
     Scan { address: Option<String> },
+    /// Check which of these Crazyflies answer, one packet each, without
+    /// connecting. Connected ones answer without radio traffic
+    ScanSelected { uris: Vec<String> },
     /// List the Crazyflies the server is connected to
     List,
     /// Attach to a Crazyflie, connecting it if no other client has
@@ -138,6 +141,28 @@ pub enum Request {
     /// Stream of [Event::Busy] and [Event::Available]: the Crazyflies that jobs
     /// take over and give back
     Watch { sub: u64 },
+
+    /// A command the Crazyflie's nRF51 handles, sent without connecting to it.
+    /// Its clients are disconnected, except by [PlatformCommand::PowerOnStm32Domain].
+    /// Fails if it doesn't answer
+    Platform { uri: String, command: PlatformCommand },
+}
+
+/// Commands for [Request::Platform], named after the crazyflie-lib functions
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlatformCommand {
+    /// Restart the firmware. The reply comes once the firmware answers again;
+    /// meanwhile the Crazyflie is busy ([Event::Busy]), and a client that
+    /// was attached gets it back connected ([Event::Available])
+    Reboot,
+    /// Power off the whole Crazyflie, as the power button does. Only the
+    /// button turns it on again
+    PowerOffAll,
+    /// Power off the STM32 and decks (sleep). The nRF51 stays on the radio
+    PowerOffStm32Domain,
+    /// Power the STM32 and decks on again (wake up)
+    PowerOnStm32Domain,
 }
 
 /// A firmware image for [Request::Flash]
@@ -233,6 +258,9 @@ pub struct CfInfo {
     pub uri: String,
     /// Names of the clients attached to it
     pub clients: Vec<String>,
+    /// The server's Crazyradio it is connected or answered on, `None` for USB
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub radio: Option<usize>,
 }
 
 /// What a client learns when it attaches
@@ -291,6 +319,13 @@ pub struct NormalizedUri {
     pub radio: Option<usize>,
     /// Query string without the `?`, e.g. `timeout=3000`
     pub options: Option<String>,
+}
+
+impl NormalizedUri {
+    /// The channel of a radio URI
+    pub fn channel(&self) -> Option<u8> {
+        self.key.strip_prefix("radio:///")?.split('/').next()?.parse().ok()
+    }
 }
 
 /// Normalize a Crazyflie URI
@@ -377,5 +412,19 @@ mod tests {
         assert_eq!(normalize_uri("usb://0").unwrap().key, "usb://0");
         assert!(normalize_uri("radio://x/80").is_err());
         assert!(normalize_uri("radio:///80/2M/E7").is_err());
+        assert_eq!(normalize_uri("radio://1/88/2M/ABAD1DEA01").unwrap().channel(), Some(88));
+        assert_eq!(normalize_uri("usb://0").unwrap().channel(), None);
+    }
+
+    #[test]
+    fn platform_json_shape() {
+        let msg = ClientMessage {
+            id: 2,
+            request: Request::Platform { uri: "radio:///80/2M/E7E7E7E7E7".into(), command: PlatformCommand::PowerOffStm32Domain },
+        };
+        assert_eq!(
+            serde_json::to_string(&msg).unwrap(),
+            r#"{"id":2,"call":"platform","args":{"uri":"radio:///80/2M/E7E7E7E7E7","command":"power_off_stm32_domain"}}"#
+        );
     }
 }

@@ -287,19 +287,19 @@ impl Server {
         for uri in uris {
             let was_on = self.take_offline(&uri.key, "Being flashed").await;
             was_connected.push(was_on.is_some());
-            radios.push(self.pick_radio(was_on.flatten().or(uri.radio)).await);
+            radios.push(self.pick_radio(was_on.flatten().or(uri.radio), uri.channel().unwrap_or_default()).await);
         }
 
         // Into the bootloader, a few Crazyflies per Crazyradio at a time
         let turns: HashMap<usize, Arc<Semaphore>> = radios
             .iter()
             .flatten()
-            .map(|radio| (*radio, Arc::new(Semaphore::new(BOOTLOADER_PER_RADIO))))
+            .map(|slot| (slot.radio, Arc::new(Semaphore::new(BOOTLOADER_PER_RADIO))))
             .collect();
-        let entered = join_all(uris.iter().zip(&radios).map(|(uri, radio)| {
+        let entered = join_all(uris.iter().zip(&radios).map(|(uri, slot)| {
             let turns = &turns;
             async move {
-                let radio = *radio.as_ref().map_err(Clone::clone)?;
+                let radio = slot.as_ref().map_err(Clone::clone)?.radio;
                 let _turn = turns[&radio].acquire().await.map_err(|e| e.to_string())?;
                 reporter.progress(Some(&uri.key), "Restarting into the bootloader", 0, 1);
                 let path = uri.key.trim_start_matches("radio:///");
@@ -308,8 +308,8 @@ impl Server {
             }
         }))
         .await;
-        for radio in radios.into_iter().flatten() {
-            self.release_radio(Some(radio));
+        for slot in radios.into_iter().flatten() {
+            self.release_radio(Some(slot));
         }
         let mut in_bootloader = Vec::new();
         for (index, entered) in entered.into_iter().enumerate() {
@@ -325,7 +325,8 @@ impl Server {
         // Then all on the Crazyradio of the first, on channel 0
         let mut restarted = Vec::new();
         if let Some(&(_, radio, _)) = in_bootloader.first() {
-            let _ = self.pick_radio(Some(radio)).await;
+            // The bootloaders are on channel 0
+            let slot = self.pick_radio(Some(radio), 0).await.ok();
             match bootloader_radio(context, radio).await {
                 Ok(shared) => {
                     let sessions = open_sessions(shared, radio, uris, in_bootloader, reporter, &mut outcomes).await;
@@ -338,7 +339,7 @@ impl Server {
                     }
                 }
             }
-            self.release_radio(Some(radio));
+            self.release_radio(slot);
         }
 
         // Every Crazyflie sent back into its firmware has to have left its bootloader

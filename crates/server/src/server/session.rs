@@ -66,14 +66,17 @@ impl Session {
         let shared = self.shared.clone();
         tokio::spawn(async move {
             let id = message.id;
-            let reply = match dispatch(&server, &shared, message.request).await {
+            let tx = shared.tx.clone();
+            // A request that panics (e.g. in crazyflie-link) still gets a reply
+            let handled = tokio::spawn(async move { dispatch(&server, &shared, message.request).await }).await;
+            let reply = match handled.unwrap_or_else(|e| Err(format!("The server failed on this request: {e}"))) {
                 Ok(response) => ServerMessage::Reply { id, ok: Some(response), error: None },
                 Err(error) => {
                     debug!("Request {id} failed: {error}");
                     ServerMessage::Reply { id, ok: None, error: Some(error) }
                 }
             };
-            let _ = shared.tx.send(reply);
+            let _ = tx.send(reply);
         });
     }
 
@@ -139,6 +142,10 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
             let address = parse_address(address.as_deref().unwrap_or(DEFAULT_ADDRESS))?;
             Ok(Response::Scan { found: server.scan(address).await? })
         }
+        Request::ScanSelected { uris } => {
+            let uris = uris.iter().map(|uri| normalize_uri(uri)).collect::<Result<Vec<_>, String>>()?;
+            Ok(Response::Scan { found: server.scan_selected(&uris).await })
+        }
         Request::List => Ok(Response::List { connected: server.list() }),
         Request::Attach { uri } => {
             let uri = normalize_uri(&uri)?;
@@ -201,11 +208,7 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
         }
         Request::ConsoleSubscribe { uri, sub, history } => {
             let entry = attached(server, session, &uri)?;
-            let lines = if history {
-                entry.cf.console.line_stream().await.boxed()
-            } else {
-                entry.cf.console.line_stream_no_history().await.boxed()
-            };
+            let lines = entry.console.subscribe(history);
             forward(session, &entry, sub, lines.map(|line| Event::Console { line }));
             Ok(Response::Done)
         }
@@ -316,6 +319,10 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
             watch(session, sub, server.watch_events());
             Ok(Response::Done)
         }
+        Request::Platform { uri, command } => {
+            server.platform(&normalize_uri(&uri)?, command, &session.name()).await?;
+            Ok(Response::Done)
+        }
         Request::LinkStatistics { uri } => {
             let entry = attached(server, session, &uri)?;
             let stats = entry.cf.link_service.get_statistics().await;
@@ -372,12 +379,13 @@ where
     let mut cancelled = session.add_sub(sub, &entry.key);
     let mut closed = entry.closed.subscribe();
     let tx = session.tx.clone();
+    let entry = entry.clone();
     tokio::spawn(async move {
         let mut events = std::pin::pin!(events);
         let end = loop {
             tokio::select! {
                 _ = &mut cancelled => break End::Cancelled,
-                _ = closed.wait_for(|closed| *closed) => break End::Ended("Crazyflie disconnected".to_owned()),
+                _ = closed.wait_for(|closed| *closed) => break End::Ended(entry.lost_reason()),
                 event = events.next() => match event {
                     Some(event) => {
                         if tx.send(ServerMessage::Event { sub, event }).is_err() {

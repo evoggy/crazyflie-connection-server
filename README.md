@@ -55,18 +55,24 @@ reads a parameter and subscribes to a log variable in about 40 lines.
 
 ## Status
 
-Prototype. Supported: scan, list, attach, params (get/set/watch, persistent
-state/store/clear, shared cache), log subscriptions (spread over as many log
-blocks as they need), console, high-level commander (take-off, land, go-to,
-stop, define and start trajectories), roll/pitch/yaw-rate/thrust setpoints,
-arming, emergency stop, crash recovery, lighthouse sweep angles, link
-statistics, and flashing the STM32 and nRF51 as a job that shares the
-Crazyradio with the other connections: one Crazyflie, or a swarm of one
-platform, by broadcast to the Crazyflies whose bootloaders take it. Clients
-can watch which Crazyflies jobs take over and give back. Every client can send
-every command.
+Prototype. Supported: scan (all channels, or which of a list of Crazyflies
+answer), list, attach, params (get/set/watch, persistent state/store/clear,
+shared cache), log subscriptions (spread over as many log blocks as they
+need), console, high-level commander (take-off, land, go-to, stop, define and
+start trajectories), roll/pitch/yaw-rate/thrust setpoints, arming, emergency
+stop, crash recovery, lighthouse sweep angles, link statistics, reboot and
+power off/sleep/wake up, and flashing the STM32 and nRF51 as a job that
+shares the Crazyradio with the other connections: one Crazyflie, or a swarm
+of one platform, by broadcast to the Crazyflies whose bootloaders take it.
+Clients can watch which Crazyflies jobs take over and give back. Every client
+can send every command.
 
-For tools with their own connection code (cfcli's swarm runner),
-`Client::adopt` serves a Crazyflie the tool connected itself, and in direct
-and shared mode `Crazyflie::lib()` gives the crazyflie-lib
-`Crazyflie` behind a handle for what the API does not cover yet.
+Connecting a swarm: Crazyflies on (nearly) the same channel share a
+Crazyradio, at most 8 connect at the same time on each, and a firmware's
+TOCs are downloaded from one Crazyflie while the others with that firmware
+wait for the cache.
+
+For tools with their own connection code, `Client::adopt` serves a Crazyflie
+the tool connected itself, and in direct and shared mode `Crazyflie::lib()`
+gives the crazyflie-lib `Crazyflie` behind a handle for what the API does not
+cover yet.

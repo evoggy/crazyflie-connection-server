@@ -227,10 +227,16 @@ fn route(core: &Weak<Core>, message: ServerMessage) -> bool {
         }
         ServerMessage::Disconnected { uri, reason } => {
             if let Some(entry) = core.attached.lock().unwrap().get(&uri) {
-                entry.lost.send_replace(Some(reason));
+                entry.lost.send_replace(Some(reason.clone()));
             }
-            // The server ended the Crazyflie's streams with it
-            core.subs.lock().unwrap().retain(|_, (key, _)| *key != uri);
+            // The server ended the Crazyflie's streams with it; they end with the reason
+            core.subs.lock().unwrap().retain(|_, (key, tx)| {
+                if *key != uri {
+                    return true;
+                }
+                let _ = tx.send(Event::Ended { reason: format!("Disconnected: {reason}") });
+                false
+            });
         }
     }
     true
