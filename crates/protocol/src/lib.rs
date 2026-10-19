@@ -67,6 +67,9 @@ pub enum Request {
     ParamSet { uri: String, name: String, value: f64 },
     /// Stream of [Event::ParamChanged] for every param set by any client
     ParamWatch { uri: String, sub: u64 },
+    /// Whether a param can be stored in the EEPROM. Replies [Response::Bool].
+    /// Asks the Crazyflie, so it isn't part of [AttachInfo]
+    ParamIsPersistent { uri: String, name: String },
     /// Default and stored value of a persistent param
     ParamPersistentState { uri: String, name: String },
     /// Store the current value of a persistent param in the Crazyflie's EEPROM
@@ -519,9 +522,6 @@ pub struct TocItem {
     pub value_type: String,
     /// Always `true` for log variables
     pub writable: bool,
-    /// Param that can be stored in the EEPROM. Always `false` for log variables
-    #[serde(default)]
-    pub persistent: bool,
 }
 
 /// Default and stored value of a persistent param, see

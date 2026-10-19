@@ -29,7 +29,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
-use tokio::sync::{OnceCell, Semaphore, watch};
+use tokio::sync::{OnceCell, watch};
 use toc::{ProbeCache, ServerTocCache, TocDownloads};
 
 /// How long connecting a Crazyflie may take, TOC download included
@@ -37,9 +37,6 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long a Crazyflie restarted by a job gets to start its firmware. The
 /// nRF51 delays the start by 5 s when an AI-deck is attached
 const FIRMWARE_START: Duration = Duration::from_secs(15);
-/// Crazyflies connecting at the same time on each Crazyradio. All at once
-/// leaves each link so little of the radio that connecting starts to time out
-const CONNECTS_PER_RADIO: usize = 8;
 /// Channels less than this apart go on one Crazyradio, so that two radios
 /// don't send on (nearly) the same channel at once
 const CHANNEL_SPACING: u8 = 2;
@@ -124,8 +121,6 @@ struct Inner {
     _radios: Vec<SharedCrazyradio>,
     /// The channel of every link on each radio, used to pick a radio for `radio:///` URIs
     radio_load: Mutex<BTreeMap<usize, Vec<u8>>>,
-    /// Connects running on each radio, at most [CONNECTS_PER_RADIO]
-    connect_turns: Mutex<HashMap<usize, Arc<Semaphore>>>,
     /// TOCs being downloaded, so that Crazyflies with the same firmware wait for one download
     toc_downloads: TocDownloads,
     cfs: Mutex<HashMap<String, Arc<OnceCell<Arc<CfEntry>>>>>,
@@ -201,7 +196,6 @@ impl Server {
                 link_context,
                 _radios: radios,
                 radio_load: Mutex::new(radio_load),
-                connect_turns: Mutex::new(HashMap::new()),
                 toc_downloads: TocDownloads::default(),
                 cfs: Mutex::new(HashMap::new()),
                 busy: Mutex::new(HashMap::new()),
@@ -429,17 +423,6 @@ impl Server {
         }
     }
 
-    /// A turn at connecting on `radio`, see [CONNECTS_PER_RADIO]
-    fn connect_turns(&self, radio: usize) -> Arc<Semaphore> {
-        self.inner
-            .connect_turns
-            .lock()
-            .unwrap()
-            .entry(radio)
-            .or_insert_with(|| Arc::new(Semaphore::new(CONNECTS_PER_RADIO)))
-            .clone()
-    }
-
     async fn connect(&self, uri: &NormalizedUri) -> Result<Arc<CfEntry>, String> {
         let (link_uri, slot) = match uri.key.strip_prefix("radio:///") {
             Some(path) => {
@@ -450,7 +433,7 @@ impl Server {
             None => (uri.key.clone(), None),
         };
         info!("Connecting {link_uri}");
-        let cf = match self.connect_link(&link_uri, slot).await {
+        let cf = match self.connect_link(&link_uri).await {
             Ok(cf) => Arc::new(cf),
             Err(e) => {
                 self.release_radio(slot);
@@ -466,11 +449,11 @@ impl Server {
     /// whose TOCs aren't cached downloads them, unless another connection is
     /// downloading the same ones: it then waits for that one and connects from
     /// the cache. So a swarm with one firmware downloads its TOCs once
-    async fn connect_link(&self, link_uri: &str, slot: Option<Slot>) -> Result<Crazyflie, String> {
+    async fn connect_link(&self, link_uri: &str) -> Result<Crazyflie, String> {
         let mut waited = false;
         loop {
             let probe = ProbeCache::new(self.inner.toc_cache.clone());
-            let cf = self.connect_with(link_uri, slot, probe.clone()).await?;
+            let cf = self.connect_with(link_uri, probe.clone()).await?;
             let missed = probe.missed();
             if missed.is_empty() {
                 return Ok(cf);
@@ -483,7 +466,7 @@ impl Server {
                 }
                 // Downloads them (also after waiting, should the cache not keep them)
                 claim => {
-                    let connected = self.connect_with(link_uri, slot, self.inner.toc_cache.clone()).await;
+                    let connected = self.connect_with(link_uri, self.inner.toc_cache.clone()).await;
                     drop(claim);
                     return connected;
                 }
@@ -491,13 +474,11 @@ impl Server {
         }
     }
 
-    /// One connection attempt, in turn with the radio's other connects
-    async fn connect_with(&self, link_uri: &str, slot: Option<Slot>, toc_cache: impl TocCache) -> Result<Crazyflie, String> {
-        let turns = slot.map(|slot| self.connect_turns(slot.radio));
-        let _turn = match &turns {
-            Some(turns) => Some(turns.acquire().await.map_err(|e| e.to_string())?),
-            None => None,
-        };
+    /// One connection attempt. Every Crazyflie connects at once, also the
+    /// ones on one radio: a few at a time is slower, since the ones already
+    /// connected keep polling the radio while the next ones connect (25 on one
+    /// radio: 3.0 s at 8 at a time, 1.4 s all at once, 2026-10-19)
+    async fn connect_with(&self, link_uri: &str, toc_cache: impl TocCache) -> Result<Crazyflie, String> {
         // crazyflie-link 0.5 panics when the Crazyradio fails while the link
         // starts (an unwrap in `CrazyradioConnection::open`)
         let connecting = std::panic::AssertUnwindSafe(Crazyflie::connect_from_uri(
@@ -535,15 +516,17 @@ impl Server {
             let (Ok(value_type), Ok(writable)) = (cf.param.get_type(&name), cf.param.is_writable(&name)) else {
                 continue;
             };
-            let persistent = cf.param.is_persistent(&name).await.unwrap_or(false);
-            params.push(toc_item(name, value_type, writable, persistent));
+            // Not whether it is persistent: that asks the Crazyflie for each
+            // param (133 round trips on 2026.08, 11 s for 25 Crazyflies on one
+            // radio), so clients ask for the ones they need
+            params.push(toc_item(name, value_type, writable));
         }
         params.sort_by(|a, b| a.name.cmp(&b.name));
         let mut log_vars: Vec<TocItem> = cf
             .log
             .names()
             .into_iter()
-            .filter_map(|name| Some(toc_item(name.clone(), cf.log.get_type(&name).ok()?, true, false)))
+            .filter_map(|name| Some(toc_item(name.clone(), cf.log.get_type(&name).ok()?, true)))
             .collect();
         log_vars.sort_by(|a, b| a.name.cmp(&b.name));
         let info = AttachInfo {
@@ -737,8 +720,8 @@ fn remove_if_same(cfs: &mut HashMap<String, Arc<OnceCell<Arc<CfEntry>>>>, entry:
     }
 }
 
-fn toc_item(name: String, value_type: crazyflie_lib::ValueType, writable: bool, persistent: bool) -> TocItem {
-    TocItem { name, value_type: format!("{value_type:?}").to_lowercase(), writable, persistent }
+fn toc_item(name: String, value_type: crazyflie_lib::ValueType, writable: bool) -> TocItem {
+    TocItem { name, value_type: format!("{value_type:?}").to_lowercase(), writable }
 }
 
 /// Whether the firmware behind `link` answers a link echo (CRTP port 15, channel 0)

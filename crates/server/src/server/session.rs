@@ -179,6 +179,10 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
             entry.cf.param.set_lossy(&name, value).await.map_err(lib_error)?;
             Ok(Response::Done)
         }
+        Request::ParamIsPersistent { uri, name } => {
+            let entry = attached(server, session, &uri)?;
+            Ok(Response::Bool { value: entry.cf.param.is_persistent(&name).await.map_err(lib_error)? })
+        }
         Request::ParamPersistentState { uri, name } => {
             let entry = attached(server, session, &uri)?;
             let state = entry.cf.param.persistent_get_state(&name).await.map_err(lib_error)?;

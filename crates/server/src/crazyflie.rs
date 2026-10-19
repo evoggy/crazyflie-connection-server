@@ -184,9 +184,18 @@ impl Param {
         self.toc.get(name).map(|item| item.writable).ok_or_else(|| Error::UnknownName(name.to_owned()))
     }
 
-    /// Whether the parameter can be stored in the Crazyflie's EEPROM
-    pub fn is_persistent(&self, name: &str) -> Result<bool> {
-        self.toc.get(name).map(|item| item.persistent).ok_or_else(|| Error::UnknownName(name.to_owned()))
+    /// Whether the parameter can be stored in the Crazyflie's EEPROM. Asks
+    /// the Crazyflie, like crazyflie-lib, for the params whose TOC entry says
+    /// there is more to know
+    pub async fn is_persistent(&self, name: &str) -> Result<bool> {
+        if !self.toc.contains_key(name) {
+            return Err(Error::UnknownName(name.to_owned()));
+        }
+        let request = Request::ParamIsPersistent { uri: self.handle.uri.clone(), name: name.to_owned() };
+        match self.handle.call(request).await? {
+            Response::Bool { value } => Ok(value),
+            _ => Err(Error::UnexpectedReply),
+        }
     }
 
     /// Default and stored value of a persistent parameter
