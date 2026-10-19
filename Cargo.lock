@@ -62,6 +62,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.104"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
+
+[[package]]
 name = "async-broadcast"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -223,6 +229,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "cfloader"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95ef0c6c2c917e7ef29f343aee4aad6ba8bccb1c967ac5972a6935697c1d5347"
+dependencies = [
+ "anyhow",
+ "clap",
+ "crazyradio",
+ "crc32fast",
+ "tokio",
+]
+
+[[package]]
 name = "chacha20"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -310,6 +329,8 @@ name = "crazyflie-connection-server"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64",
+ "cfloader",
  "clap",
  "crazyflie-connection-protocol",
  "crazyflie-lib",

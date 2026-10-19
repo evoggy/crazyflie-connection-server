@@ -37,7 +37,7 @@ pub use crate::crazyflie::{
     Localization, Log, LogData, LogStream, Param, Platform, Supervisor,
 };
 pub use crazyflie_connection_protocol::{
-    CfInfo, DEFAULT_PORT, LinkStatistics, NormalizedUri, PersistentParamState, TocItem, normalize_uri,
+    CfInfo, DEFAULT_PORT, FlashStart, LinkStatistics, NormalizedUri, PersistentParamState, TocItem, normalize_uri,
 };
 
 #[cfg(feature = "server")]
@@ -47,7 +47,7 @@ pub use crate::server::{Server, ServerConfig, Session, TocStore, serve, serve_on
 pub use crazyflie_lib;
 
 use crate::core::Core;
-use crazyflie_connection_protocol::{Request, Response};
+use crazyflie_connection_protocol::{Event, Request, Response};
 use std::sync::Arc;
 
 /// Environment variable read by [Client::from_env]
@@ -269,6 +269,86 @@ impl Client {
     pub async fn attach(&self, uri: &str) -> Result<Crazyflie> {
         Crazyflie::attach(self.core.clone(), uri).await
     }
+
+    /// Follow the Crazyflies that jobs take over and give back, e.g. to attach
+    /// again to one that was flashed
+    pub async fn watch(&self) -> Result<futures::stream::BoxStream<'static, ServerEvent>> {
+        use futures::StreamExt;
+        let (guard, events) = self.core.open_server_stream();
+        match self.core.call(Request::Watch { sub: guard.sub() }).await? {
+            Response::Done => {}
+            _ => return Err(Error::UnexpectedReply),
+        }
+        Ok(crate::crazyflie::event_stream(guard, events, |event| match event {
+            Event::Busy { uri, reason } => Some(ServerEvent::Busy { uri, reason }),
+            Event::Available { uri, connected } => Some(ServerEvent::Available { uri, connected }),
+            _ => None,
+        })
+        .boxed())
+    }
+
+    /// Flash firmware to the Crazyflie at `uri`, a radio URI: the server
+    /// restarts it into its bootloader, writes the images and restarts it into
+    /// its firmware, sharing the Crazyradio with its other connections.
+    /// Programs attached to the Crazyflie are disconnected. The job runs on the
+    /// server and finishes even if this program goes away. `progress` is
+    /// called as it goes
+    pub async fn flash(&self, uri: &str, images: Vec<FlashImage>, mut progress: impl FnMut(FlashProgress)) -> Result<()> {
+        use base64::Engine as _;
+        let images = images
+            .into_iter()
+            .map(|image| crazyflie_connection_protocol::FlashImage {
+                target: image.target,
+                start: image.start,
+                data: base64::engine::general_purpose::STANDARD.encode(&image.data),
+            })
+            .collect();
+        let (guard, mut events) = self.core.open_server_stream();
+        match self.core.call(Request::Flash { uri: uri.to_owned(), sub: guard.sub(), images }).await? {
+            Response::Done => {}
+            _ => return Err(Error::UnexpectedReply),
+        }
+        loop {
+            match events.recv().await {
+                Some(Event::Progress { step, done, total }) => progress(FlashProgress { step, done, total }),
+                Some(Event::Done) => return Ok(()),
+                Some(Event::Ended { reason }) => return Err(Error::Server(reason)),
+                Some(_) => continue,
+                None => return Err(Error::ConnectionLost),
+            }
+        }
+    }
+}
+
+/// A change on the server that every client can follow with [Client::watch]
+#[derive(Debug, Clone)]
+pub enum ServerEvent {
+    /// A job took the Crazyflie over (e.g. flashing): attaching to it fails
+    /// until it is available again
+    Busy { uri: String, reason: String },
+    /// The job on the Crazyflie is done. `connected`: the server connected it
+    /// again, so attaching to it is immediate
+    Available { uri: String, connected: bool },
+}
+
+/// A firmware image for [Client::flash]
+#[derive(Debug, Clone)]
+pub struct FlashImage {
+    /// `stm32` or `nrf51`
+    pub target: String,
+    /// Where to write the image; the start of the firmware area when `None`
+    pub start: Option<FlashStart>,
+    pub data: Vec<u8>,
+}
+
+/// How far [Client::flash] is
+#[derive(Debug, Clone)]
+pub struct FlashProgress {
+    /// What the job does now, e.g. `Flashing stm32`
+    pub step: String,
+    /// Bytes written so far while flashing, else 0 or 1 of 1
+    pub done: u64,
+    pub total: u64,
 }
 
 /// Settings for running the server in this process ([Client::open_with])

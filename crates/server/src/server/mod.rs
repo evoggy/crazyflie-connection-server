@@ -9,6 +9,7 @@
 //! [serve()] exposes it over WebSocket for other processes and machines; see
 //! `crazyflie-connection-protocol` for the messages.
 
+mod flash;
 mod session;
 mod ws;
 
@@ -18,7 +19,7 @@ pub use ws::{serve, serve_on};
 use crazyflie_lib::crazyflie_link::crazyradio::Crazyradio;
 use crazyflie_lib::crazyflie_link::{LinkContext, SharedCrazyradio};
 use crazyflie_lib::{Crazyflie, TocCache};
-use crazyflie_connection_protocol::{AttachInfo, CfInfo, NormalizedUri, TocItem, normalize_uri};
+use crazyflie_connection_protocol::{AttachInfo, CfInfo, Event, NormalizedUri, TocItem, normalize_uri};
 use log::{info, warn};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -110,6 +111,10 @@ struct Inner {
     /// Number of Crazyflies per radio index, used to pick a radio for `radio:///` URIs
     radio_load: Mutex<BTreeMap<usize, usize>>,
     cfs: Mutex<HashMap<String, Arc<OnceCell<Arc<CfEntry>>>>>,
+    /// Crazyflies a job (flashing) has taken over: key → why they can't be attached to
+    busy: Mutex<HashMap<String, String>>,
+    /// [Event::Busy] and [Event::Available], for the clients that watch them
+    events: tokio::sync::broadcast::Sender<Event>,
     sessions: Mutex<HashMap<u64, Weak<session::SessionShared>>>,
     next_session: AtomicU64,
     toc_cache: ServerTocCache,
@@ -162,6 +167,8 @@ impl Server {
                 _radios: radios,
                 radio_load: Mutex::new(radio_load),
                 cfs: Mutex::new(HashMap::new()),
+            busy: Mutex::new(HashMap::new()),
+            events: tokio::sync::broadcast::Sender::new(64),
                 sessions: Mutex::new(HashMap::new()),
                 next_session: AtomicU64::new(1),
                 toc_cache,
@@ -235,6 +242,10 @@ impl Server {
 
     /// Scan for Crazyflies at `address`. Results use normalized URIs
     pub(crate) async fn scan(&self, address: [u8; 5]) -> Result<Vec<CfInfo>, String> {
+        // A scan holds the radio for a while, and the bootloader's 100 ms timeouts would run out
+        if let Some(reason) = self.inner.busy.lock().unwrap().values().next() {
+            return Err(format!("Can't scan now: {reason}"));
+        }
         if attached_radios() > 0 && self.usable_radio().await.is_none() {
             return Err(RADIOS_BUSY.to_owned());
         }
@@ -250,6 +261,9 @@ impl Server {
 
     /// Attach a session to a Crazyflie, connecting it if needed
     pub(crate) async fn attach(&self, session_id: u64, name: &str, uri: &NormalizedUri) -> Result<Arc<CfEntry>, String> {
+        if let Some(reason) = self.inner.busy.lock().unwrap().get(&uri.key) {
+            return Err(reason.clone());
+        }
         loop {
             let cell = self.inner.cfs.lock().unwrap().entry(uri.key.clone()).or_default().clone();
             let entry = cell.get_or_try_init(|| self.connect(uri)).await?.clone();
@@ -278,7 +292,14 @@ impl Server {
             clients.remove(&session_id);
             clients.is_empty()
         };
-        if empty && let Ok(runtime) = tokio::runtime::Handle::try_current() {
+        if empty {
+            self.close_later(entry);
+        }
+    }
+
+    /// Close the Crazyflie after the linger time unless a client attached to it
+    fn close_later(&self, entry: Arc<CfEntry>) {
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             let server = self.clone();
             runtime.spawn(async move {
                 tokio::time::sleep(server.inner.config.linger).await;
@@ -434,7 +455,61 @@ impl Server {
         entry
     }
 
+    /// Mark a Crazyflie as taken over by a job, so that attaching to it fails with `reason`
+    fn mark_busy(&self, key: &str, reason: String) -> Result<(), String> {
+        let mut busy = self.inner.busy.lock().unwrap();
+        if let Some(reason) = busy.get(key) {
+            return Err(reason.clone());
+        }
+        busy.insert(key.to_owned(), reason);
+        Ok(())
+    }
+
+    fn unmark_busy(&self, key: &str) {
+        self.inner.busy.lock().unwrap().remove(key);
+    }
+
+    /// Tell the clients that watch the server
+    fn announce(&self, event: Event) {
+        let _ = self.inner.events.send(event);
+    }
+
+    pub(crate) fn watch_events(&self) -> tokio::sync::broadcast::Receiver<Event> {
+        self.inner.events.subscribe()
+    }
+
+    /// Connect a Crazyflie again after a job, so that clients attach to it at
+    /// once. It is closed after the linger time if none does
+    async fn reconnect(&self, uri: &NormalizedUri) -> bool {
+        for _ in 0..3 {
+            // The firmware starts in about a second
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let cell = self.inner.cfs.lock().unwrap().entry(uri.key.clone()).or_default().clone();
+            match cell.get_or_try_init(|| self.connect(uri)).await {
+                Ok(entry) => {
+                    self.close_later(entry.clone());
+                    return true;
+                }
+                Err(e) => warn!("Reconnecting after the job: {e}"),
+            }
+        }
+        false
+    }
+
+    /// Disconnect the Crazyflie at `key`, if connected, telling its clients
+    /// `reason`, and return the radio it was on
+    async fn take_offline(&self, key: &str, reason: &str) -> Option<usize> {
+        let entry = self.entry(key)?;
+        self.on_disconnected(&entry, reason.to_owned());
+        entry.cf.disconnect().await;
+        entry.radio
+    }
+
     fn on_disconnected(&self, entry: &Arc<CfEntry>, reason: String) {
+        // Called again by the disconnect watch after take_offline
+        if *entry.closed.borrow() {
+            return;
+        }
         info!("{} disconnected: {reason}", entry.key);
         let clients = {
             let mut cfs = self.inner.cfs.lock().unwrap();

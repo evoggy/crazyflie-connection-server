@@ -1,5 +1,6 @@
 //! One client's view of the server: its attached Crazyflies and open streams
 
+use super::flash::{Image, Target};
 use super::{CfEntry, Server, parse_address};
 use crazyflie_lib::Crazyflie;
 use crazyflie_lib::subsystems::log::{LogPeriod, LogStream};
@@ -293,6 +294,28 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
             entry.cf.supervisor.send_crash_recovery_request().await.map_err(lib_error)?;
             Ok(Response::Done)
         }
+        Request::Flash { uri, sub, images } => {
+            use base64::Engine as _;
+            let uri = normalize_uri(&uri)?;
+            let images = images
+                .into_iter()
+                .map(|image| {
+                    Ok(Image {
+                        target: Target::parse(&image.target)?,
+                        start: image.start,
+                        data: base64::engine::general_purpose::STANDARD
+                            .decode(&image.data)
+                            .map_err(|e| format!("The {} image isn't base64: {e}", image.target))?,
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            server.start_flash(uri, &session.name(), images, session.tx.clone(), sub)?;
+            Ok(Response::Done)
+        }
+        Request::Watch { sub } => {
+            watch(session, sub, server.watch_events());
+            Ok(Response::Done)
+        }
         Request::LinkStatistics { uri } => {
             let entry = attached(server, session, &uri)?;
             let stats = entry.cf.link_service.get_statistics().await;
@@ -313,6 +336,31 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
 enum End {
     Cancelled,
     Ended(String),
+}
+
+/// Forward the server's [Event::Busy] and [Event::Available] to the client as
+/// stream `sub` until it is cancelled
+fn watch(session: &Arc<SessionShared>, sub: u64, mut events: tokio::sync::broadcast::Receiver<Event>) {
+    use tokio::sync::broadcast::error::RecvError;
+    // Not tied to a Crazyflie: it stays open when one is lost
+    let mut cancelled = session.add_sub(sub, "");
+    let tx = session.tx.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = &mut cancelled => break,
+                event = events.recv() => match event {
+                    Ok(event) => {
+                        if tx.send(ServerMessage::Event { sub, event }).is_err() {
+                            break;
+                        }
+                    }
+                    Err(RecvError::Lagged(_)) => continue,
+                    Err(RecvError::Closed) => break,
+                },
+            }
+        }
+    });
 }
 
 /// Forward a stream of events to the client as stream `sub` until it is

@@ -124,6 +124,37 @@ pub enum Request {
     CrashRecovery { uri: String },
 
     LinkStatistics { uri: String },
+
+    /// Restart the Crazyflie into its bootloader, flash the images and restart
+    /// it into its firmware, as a job on stream `sub`: [Event::Progress], then
+    /// [Event::Done] or [Event::Ended]. Clients attached to the Crazyflie are
+    /// disconnected, and attaching and scanning are refused until the job is
+    /// done. The job finishes even if the client that started it goes away
+    Flash { uri: String, sub: u64, images: Vec<FlashImage> },
+
+    /// Stream of [Event::Busy] and [Event::Available]: the Crazyflies that jobs
+    /// take over and give back
+    Watch { sub: u64 },
+}
+
+/// A firmware image for [Request::Flash]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlashImage {
+    /// `stm32` or `nrf51`
+    pub target: String,
+    /// Where to write the image; the start of the firmware area when not given
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<FlashStart>,
+    /// The image, base64 encoded
+    pub data: String,
+}
+
+/// Where a [FlashImage] is written
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FlashStart {
+    Address(u32),
+    Page(u16),
 }
 
 /// A message from the server
@@ -167,7 +198,18 @@ pub enum Event {
     Console { line: String },
     /// Sweep angles of the four sensors, in radians, from one base station
     LighthouseAngles { base_station: u8, x: [f32; 4], y: [f32; 4] },
-    /// The stream ended on the server side (disconnect, log error, …)
+    /// How far a job is: `done` of `total` for its current `step`
+    Progress { step: String, done: u64, total: u64 },
+    /// A job finished
+    Done,
+    /// A job took the Crazyflie over (e.g. flashing): attaching to it fails
+    /// until it is [Event::Available] again
+    Busy { uri: String, reason: String },
+    /// The job on the Crazyflie is done. `connected`: the server connected it
+    /// again, so attaching to it is immediate
+    Available { uri: String, connected: bool },
+    /// The stream ended on the server side (disconnect, log error, …), or a
+    /// job failed
     Ended { reason: String },
 }
 

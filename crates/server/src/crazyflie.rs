@@ -66,7 +66,7 @@ impl Drop for Handle {
 }
 
 /// Turn a stream's events into items until it ends. Dropping it closes the stream on the server
-fn event_stream<T, F>(
+pub(crate) fn event_stream<T, F>(
     guard: StreamGuard,
     events: mpsc::UnboundedReceiver<Event>,
     map: F,

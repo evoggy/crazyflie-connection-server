@@ -154,6 +154,12 @@ impl Core {
     }
 
     /// Reserve a stream number and its event channel, before the subscribe request is sent
+    /// Open a stream that isn't tied to a Crazyflie (a job, the server's
+    /// events), so it stays open when one is disconnected
+    pub(crate) fn open_server_stream(self: &Arc<Self>) -> (StreamGuard, mpsc::UnboundedReceiver<Event>) {
+        self.open_stream("")
+    }
+
     pub(crate) fn open_stream(self: &Arc<Self>, uri: &str) -> (StreamGuard, mpsc::UnboundedReceiver<Event>) {
         let sub = self.next_id();
         let (tx, rx) = mpsc::unbounded_channel();
