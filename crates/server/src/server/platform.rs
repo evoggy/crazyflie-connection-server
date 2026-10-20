@@ -31,7 +31,7 @@ impl Server {
 
     /// Whether the Crazyflie at `uri` answers a packet (a few tries), and on
     /// which radio (`None` over USB)
-    async fn answers(&self, uri: &NormalizedUri) -> Option<Option<usize>> {
+    pub(super) async fn answers(&self, uri: &NormalizedUri) -> Option<Option<usize>> {
         let Some(link) = self.link_uri(uri).await else {
             let found = self.inner.link_context.scan_selected(vec![uri.key.as_str()]).await;
             return found.is_ok_and(|found| !found.is_empty()).then_some(None);

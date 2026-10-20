@@ -433,6 +433,19 @@ impl Server {
             }
             None => (uri.key.clone(), None),
         };
+        // A Crazyflie whose nRF51 acks the packets while its STM32 is off
+        // (put to sleep by another program) or in its bootloader would keep
+        // crazyflie-lib waiting for TOC answers until the connect timeout
+        if slot.is_some() && !self.echoes_now(&link_uri).await {
+            self.release_radio(slot);
+            return Err(match self.answers(uri).await {
+                Some(_) => format!(
+                    "{} answers the radio but not its firmware: it is asleep (wake it up first) or in its bootloader",
+                    uri.key
+                ),
+                None => format!("{} doesn't answer", uri.key),
+            });
+        }
         info!("Connecting {link_uri}");
         let cf = match self.connect_link(&link_uri).await {
             Ok(cf) => Arc::new(cf),
@@ -630,13 +643,22 @@ impl Server {
         let mut answered = false;
         while !answered && tokio::time::Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(500)).await;
-            if let Ok(link) = self.inner.link_context.open_link(&link_uri).await {
-                answered = echoes(&link).await;
-                link.close().await;
-            }
+            answered = self.echoes_now(&link_uri).await;
         }
         self.release_radio(Some(slot));
         answered
+    }
+
+    /// Whether the firmware behind `link_uri` answers a link echo now
+    async fn echoes_now(&self, link_uri: &str) -> bool {
+        match self.inner.link_context.open_link(link_uri).await {
+            Ok(link) => {
+                let answered = echoes(&link).await;
+                link.close().await;
+                answered
+            }
+            Err(_) => false,
+        }
     }
 
     /// Disconnect the Crazyflie at `key`, if connected, telling its clients
