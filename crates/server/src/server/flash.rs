@@ -263,7 +263,7 @@ impl Server {
                 async move {
                     let connected = outcome.reconnect && server.reconnect(&uri).await;
                     server.unmark_busy(&uri.key);
-                    server.announce(Event::Available { uri: uri.key.clone(), connected });
+                    server.announce(Event::Available { uri: uri.key.clone(), connected, moved_to: None });
                     reporter.send(match outcome.result {
                         Ok(how) => Event::Flashed { uri: uri.key, how },
                         Err(reason) => Event::FlashFailed { uri: uri.key, reason },

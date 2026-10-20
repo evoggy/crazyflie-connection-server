@@ -352,8 +352,9 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
         | Request::TrajectoryWriteCompressed { .. }
         | Request::LocoReadIdList { .. }
         | Request::LocoReadAnchor { .. } => unreachable!("a memory request"),
-        Request::Platform { uri, command } => {
-            server.platform(&normalize_uri(&uri)?, command, &session.name()).await?;
+        Request::Platform { uri, command, new_uri } => {
+            let new_uri = new_uri.as_deref().map(normalize_uri).transpose()?;
+            server.platform(&normalize_uri(&uri)?, command, new_uri.as_ref(), &session.name()).await?;
             Ok(Response::Done)
         }
         Request::LinkStatistics { uri } => {

@@ -281,6 +281,18 @@ impl Client {
         self.platform(uri, PlatformCommand::Reboot).await
     }
 
+    /// Restart the firmware of the Crazyflie at `uri`, which comes back at
+    /// `new_uri`: its radio channel or address was changed in its EEPROM
+    /// config, which the firmware reads at boot. Returns once it answers at
+    /// `new_uri`; fails if it doesn't within 15 s (it may still answer at `uri`
+    /// if the change didn't take). Clients attached to it are disconnected,
+    /// and it isn't connected again
+    pub async fn reboot_to(&self, uri: &str, new_uri: &str) -> Result<()> {
+        let request = Request::Platform { uri: uri.to_owned(), command: PlatformCommand::Reboot, new_uri: Some(new_uri.to_owned()) };
+        self.core.call(request).await?;
+        Ok(())
+    }
+
     /// Power off the Crazyflie at `uri` completely, as its power button
     /// does: it can't be woken up by radio after this
     pub async fn power_off_all(&self, uri: &str) -> Result<()> {
@@ -303,7 +315,7 @@ impl Client {
     }
 
     async fn platform(&self, uri: &str, command: PlatformCommand) -> Result<()> {
-        self.core.call(Request::Platform { uri: uri.to_owned(), command }).await?;
+        self.core.call(Request::Platform { uri: uri.to_owned(), command, new_uri: None }).await?;
         Ok(())
     }
 
@@ -331,7 +343,7 @@ impl Client {
         }
         Ok(crate::crazyflie::event_stream(guard, events, |event| match event {
             Event::Busy { uri, reason } => Some(ServerEvent::Busy { uri, reason }),
-            Event::Available { uri, connected } => Some(ServerEvent::Available { uri, connected }),
+            Event::Available { uri, connected, moved_to } => Some(ServerEvent::Available { uri, connected, moved_to }),
             _ => None,
         })
         .boxed())
@@ -410,8 +422,9 @@ pub enum ServerEvent {
     /// until it is available again
     Busy { uri: String, reason: String },
     /// The job on the Crazyflie is done. `connected`: the server connected it
-    /// again, so attaching to it is immediate
-    Available { uri: String, connected: bool },
+    /// again, so attaching to it is immediate. `moved_to`: it was rebooted
+    /// onto another channel or address ([Client::reboot_to]) and answers there
+    Available { uri: String, connected: bool, moved_to: Option<String> },
 }
 
 /// A firmware image for [Client::flash] and [Client::flash_swarm]

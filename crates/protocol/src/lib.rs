@@ -188,7 +188,16 @@ pub enum Request {
     /// A command the Crazyflie's nRF51 handles, sent without connecting to it.
     /// Its clients are disconnected, except by [PlatformCommand::PowerOnStm32Domain].
     /// Fails if it doesn't answer
-    Platform { uri: String, command: PlatformCommand },
+    Platform {
+        uri: String,
+        command: PlatformCommand,
+        /// With [PlatformCommand::Reboot], where the Crazyflie comes back when
+        /// its radio channel or address was changed in its EEPROM config: the
+        /// reply waits for its firmware there, it isn't connected again, and
+        /// [Event::Available] says where it moved
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        new_uri: Option<String>,
+    },
 }
 
 /// Commands for [Request::Platform], named after the crazyflie-lib functions
@@ -301,8 +310,14 @@ pub enum Event {
     /// until it is [Event::Available] again
     Busy { uri: String, reason: String },
     /// The job on the Crazyflie is done. `connected`: the server connected it
-    /// again, so attaching to it is immediate
-    Available { uri: String, connected: bool },
+    /// again, so attaching to it is immediate. `moved_to`: it was rebooted
+    /// onto another channel or address, and answers there now
+    Available {
+        uri: String,
+        connected: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        moved_to: Option<String>,
+    },
     /// The stream ended on the server side (disconnect, log error, …)
     Ended { reason: String },
 }
@@ -664,7 +679,11 @@ mod tests {
     fn platform_json_shape() {
         let msg = ClientMessage {
             id: 2,
-            request: Request::Platform { uri: "radio:///80/2M/E7E7E7E7E7".into(), command: PlatformCommand::PowerOffStm32Domain },
+            request: Request::Platform {
+                uri: "radio:///80/2M/E7E7E7E7E7".into(),
+                command: PlatformCommand::PowerOffStm32Domain,
+                new_uri: None,
+            },
         };
         assert_eq!(
             serde_json::to_string(&msg).unwrap(),

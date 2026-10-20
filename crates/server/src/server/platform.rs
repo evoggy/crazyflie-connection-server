@@ -63,17 +63,36 @@ impl Server {
     /// Send a command to the nRF51 of the Crazyflie at `uri`, for client
     /// `who`. Its clients are disconnected first. A reboot returns once the
     /// firmware answers again, and the Crazyflie is busy until then
-    pub(crate) async fn platform(&self, uri: &NormalizedUri, command: PlatformCommand, who: &str) -> Result<(), String> {
+    pub(crate) async fn platform(
+        &self,
+        uri: &NormalizedUri,
+        command: PlatformCommand,
+        new_uri: Option<&NormalizedUri>,
+        who: &str,
+    ) -> Result<(), String> {
+        if new_uri.is_some() && command != PlatformCommand::Reboot {
+            return Err("Only a reboot can bring a Crazyflie back at another URI".to_owned());
+        }
+        if new_uri.is_some_and(|new_uri| !new_uri.key.starts_with("radio:///")) {
+            return Err("A Crazyflie can only be rebooted onto another radio URI".to_owned());
+        }
         let Some(link) = self.link_uri(uri).await else {
             return Err(format!("{} can't take platform commands: the nRF51 only gets them by radio", uri.key));
         };
         let (link_uri, slot) = link?;
-        let sent = self.send_platform(uri, &link_uri, command, who).await;
+        let sent = self.send_platform(uri, &link_uri, command, new_uri, who).await;
         self.release_radio(Some(slot));
         sent
     }
 
-    async fn send_platform(&self, uri: &NormalizedUri, link_uri: &str, command: PlatformCommand, who: &str) -> Result<(), String> {
+    async fn send_platform(
+        &self,
+        uri: &NormalizedUri,
+        link_uri: &str,
+        command: PlatformCommand,
+        new_uri: Option<&NormalizedUri>,
+        who: &str,
+    ) -> Result<(), String> {
         if let Some(reason) = self.inner.busy.lock().unwrap().get(&uri.key) {
             return Err(reason.clone());
         }
@@ -93,7 +112,7 @@ impl Server {
                 Crazyflie::power_on_stm32_domain(context, link_uri).await.map_err(|e| e.to_string())?;
                 self.inner.asleep.lock().unwrap().remove(&uri.key);
                 let answered = self.firmware_answers(uri).await;
-                self.announce(Event::Available { uri: uri.key.clone(), connected: false });
+                self.announce(Event::Available { uri: uri.key.clone(), connected: false, moved_to: None });
                 return match answered {
                     true => Ok(()),
                     false => Err(format!("Woken up, but its firmware didn't answer within {FIRMWARE_START:?}")),
@@ -127,15 +146,22 @@ impl Server {
         self.announce(Event::Busy { uri: uri.key.clone(), reason: busy });
         let was_connected = self.take_offline(&uri.key, &reason).await.is_some();
         info!("{}: {reason}", uri.key);
+        // Where its firmware comes back: on another link when its radio
+        // config was changed (rechanneling), and then it isn't connected again
+        let comes_back = new_uri.unwrap_or(uri);
         let rebooted = match reboot(context, link_uri).await {
-            Ok(()) if self.firmware_answers(uri).await => Ok(()),
-            Ok(()) => Err(format!("Rebooted, but its firmware didn't answer within {FIRMWARE_START:?}")),
+            Ok(()) if self.firmware_answers(comes_back).await => Ok(()),
+            Ok(()) => Err(format!(
+                "Rebooted, but its firmware didn't answer at {} within {FIRMWARE_START:?}",
+                comes_back.key
+            )),
             Err(e) => Err(e),
         };
-        let connected = rebooted.is_ok() && was_connected && self.reconnect(uri).await;
+        let connected = rebooted.is_ok() && was_connected && new_uri.is_none() && self.reconnect(uri).await;
+        let moved_to = new_uri.filter(|_| rebooted.is_ok()).map(|new_uri| new_uri.key.clone());
         self.inner.asleep.lock().unwrap().remove(&uri.key);
         self.unmark_busy(&uri.key);
-        self.announce(Event::Available { uri: uri.key.clone(), connected });
+        self.announce(Event::Available { uri: uri.key.clone(), connected, moved_to });
         rebooted
     }
 }
