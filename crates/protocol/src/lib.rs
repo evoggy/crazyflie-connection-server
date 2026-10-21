@@ -23,6 +23,9 @@
 //! Crazyflies are addressed by URI. The server keys them on the normalized
 //! form returned by [normalize_uri], so `radio://0/80/2M/E7E7E7E701` and
 //! `radio:///80/2M/E7E7E7E701` are the same Crazyflie.
+//!
+//! The repository's `docs/` has a guide to the protocol, a reference of every
+//! call with examples, and the JSON Schema of the messages.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -38,6 +41,7 @@ pub const DEFAULT_ADDRESS: &str = "E7E7E7E7E7";
 
 /// A request from a client
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct ClientMessage {
     /// Picked by the client, echoed in the reply
     pub id: u64,
@@ -46,13 +50,21 @@ pub struct ClientMessage {
 }
 
 /// Request payloads
+///
+/// Every call on a Crazyflie (`uri`) needs the client to be attached to it,
+/// except [Request::Attach], [Request::Detach], [Request::ScanSelected],
+/// [Request::Flash] and [Request::Platform]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(tag = "call", content = "args", rename_all = "snake_case")]
 pub enum Request {
     /// Name this client, shown to other clients in scan and list results
     Hello { name: String },
-    /// Scan all channels for Crazyflies at an address (default E7E7E7E7E7)
-    Scan { address: Option<String> },
+    /// Scan all channels for Crazyflies at an address. Refused while a job runs
+    Scan {
+        /// 10 hex digits, E7E7E7E7E7 when not given
+        address: Option<String>,
+    },
     /// Check which of these Crazyflies answer, one packet each, without
     /// connecting. Connected ones answer without radio traffic
     ScanSelected { uris: Vec<String> },
@@ -60,10 +72,13 @@ pub enum Request {
     List,
     /// Attach to a Crazyflie, connecting it if no other client has
     Attach { uri: String },
-    /// Detach from a Crazyflie. It is disconnected when its last client detaches
+    /// Detach from a Crazyflie. It is disconnected a while (the server's
+    /// linger time) after its last client detaches
     Detach { uri: String },
 
+    /// Read a param from the Crazyflie
     ParamGet { uri: String, name: String },
+    /// Set a param. Every value is a number, converted to the param's type
     ParamSet { uri: String, name: String, value: f64 },
     /// Stream of [Event::ParamChanged] for every param set by any client
     ParamWatch { uri: String, sub: u64 },
@@ -79,10 +94,22 @@ pub enum Request {
 
     /// Stream of [Event::Log] with the given variables. Variables that don't fit
     /// one log block (26 bytes) are spread over several, each arriving as its own event
-    LogSubscribe { uri: String, sub: u64, vars: Vec<String>, period_ms: u64 },
+    LogSubscribe {
+        uri: String,
+        sub: u64,
+        /// Log variable names, `group.name`
+        vars: Vec<String>,
+        /// Milliseconds between samples, 10 to 2550
+        period_ms: u64,
+    },
 
-    /// Stream of [Event::Console] lines, optionally starting with the history
-    ConsoleSubscribe { uri: String, sub: u64, history: bool },
+    /// Stream of [Event::Console] lines
+    ConsoleSubscribe {
+        uri: String,
+        sub: u64,
+        /// Start with the lines printed since the Crazyflie was connected
+        history: bool,
+    },
 
     /// Stream of [Event::LighthouseAngles]. The Crazyflie sends them only while
     /// the `locSrv.enLhAngleStream` param is 1
@@ -91,44 +118,111 @@ pub enum Request {
     /// Stop a stream opened with `sub`
     Unsubscribe { sub: u64 },
 
-    TakeOff { uri: String, height: f32, yaw: Option<f32>, duration: f32, group_mask: Option<u8> },
-    Land { uri: String, height: f32, yaw: Option<f32>, duration: f32, group_mask: Option<u8> },
-    Stop { uri: String, group_mask: Option<u8> },
+    /// Take off from the current position. The reply comes when the command is
+    /// sent, not when the Crazyflie is up
+    TakeOff {
+        uri: String,
+        /// Meters above the world origin
+        height: f32,
+        /// Radians, the current yaw when not given
+        yaw: Option<f32>,
+        /// Seconds to reach `height`
+        duration: f32,
+        /// The groups of Crazyflies that obey, all when not given
+        group_mask: Option<u8>,
+    },
+    /// Land at the current position
+    Land {
+        uri: String,
+        /// Meters above the world origin
+        height: f32,
+        /// Radians, the current yaw when not given
+        yaw: Option<f32>,
+        /// Seconds to reach `height`
+        duration: f32,
+        /// The groups of Crazyflies that obey, all when not given
+        group_mask: Option<u8>,
+    },
+    /// Stop the high-level command and the motors
+    Stop {
+        uri: String,
+        /// The groups of Crazyflies that obey, all when not given
+        group_mask: Option<u8>,
+    },
+    /// Fly to a position
     GoTo {
         uri: String,
+        /// Meters
         x: f32,
+        /// Meters
         y: f32,
+        /// Meters
         z: f32,
+        /// Radians
         yaw: f32,
+        /// Seconds to get there
         duration: f32,
+        /// The position and yaw are relative to the current ones
         relative: bool,
+        /// A straight line at constant speed instead of a smooth polynomial
         linear: bool,
+        /// The groups of Crazyflies that obey, all when not given
         group_mask: Option<u8>,
     },
     /// Define trajectory `id` as `num_pieces` pieces at `memory_offset` in the trajectory memory
-    DefineTrajectory { uri: String, id: u8, memory_offset: u32, num_pieces: u8, trajectory_type: Option<u8> },
+    DefineTrajectory {
+        uri: String,
+        id: u8,
+        /// Bytes into the trajectory memory
+        memory_offset: u32,
+        num_pieces: u8,
+        /// 0: uncompressed (the default), 1: compressed
+        trajectory_type: Option<u8>,
+    },
+    /// Fly trajectory `id`
     StartTrajectory {
         uri: String,
         id: u8,
+        /// 1 flies it as defined, 2 twice as slow
         time_scale: f32,
+        /// Shift it to start at the current position
         relative_position: bool,
+        /// Turn it to start at the current yaw
         relative_yaw: bool,
+        /// Fly it backwards
         reversed: bool,
+        /// The groups of Crazyflies that obey, all when not given
         group_mask: Option<u8>,
     },
 
-    /// Low-level setpoint, sent repeatedly: roll and pitch in degrees, yaw rate
-    /// in degrees/s, thrust 0-65535
-    SetpointRpyt { uri: String, roll: f32, pitch: f32, yawrate: f32, thrust: u16 },
+    /// Low-level setpoint, sent repeatedly. The thrust is locked until a
+    /// setpoint with thrust 0 is sent
+    SetpointRpyt {
+        uri: String,
+        /// Degrees
+        roll: f32,
+        /// Degrees
+        pitch: f32,
+        /// Degrees/s
+        yawrate: f32,
+        /// 0 to 65535
+        thrust: u16,
+    },
     /// End the low-level setpoints, so that the high-level commander takes over
-    /// after `remain_valid_ms`
-    NotifySetpointStop { uri: String, remain_valid_ms: u32 },
+    NotifySetpointStop {
+        uri: String,
+        /// How long the last setpoint still holds, 0 for no time
+        remain_valid_ms: u32,
+    },
 
+    /// Arm or disarm the motors
     ArmingRequest { uri: String, arm: bool },
+    /// Stop the motors at once. The Crazyflie has to be restarted to fly again
     EmergencyStop { uri: String },
     /// Recover a Crazyflie that crashed (tumbled)
     CrashRecovery { uri: String },
 
+    /// The radio link's statistics
     LinkStatistics { uri: String },
 
     /// Restart the Crazyflies into their bootloaders, flash the images to each
@@ -147,8 +241,14 @@ pub enum Request {
 
     /// Read `length` bytes of memory `id` (see [AttachInfo::memories]) from `address`
     MemoryRead { uri: String, id: u8, address: u32, length: u32 },
-    /// Write `data` (base64) to memory `id` at `address`
-    MemoryWrite { uri: String, id: u8, address: u32, data: String },
+    /// Write `data` to memory `id` at `address`
+    MemoryWrite {
+        uri: String,
+        id: u8,
+        address: u32,
+        /// The bytes, base64 encoded
+        data: String,
+    },
     /// Read a deck's 1-wire memory `id`: its ids and elements (board name, revision, …)
     OneWireRead { uri: String, id: u8 },
     /// Read the EEPROM config memory `id`
@@ -157,9 +257,13 @@ pub enum Request {
     EepromConfigWrite { uri: String, id: u8, config: EepromConfig },
     /// Read the geometry of base station `bs` from lighthouse memory `id`
     LighthouseGeometryRead { uri: String, id: u8, bs: u8 },
+    /// Write the geometry of base station `bs` to lighthouse memory `id`. The
+    /// Crazyflie uses it until it restarts, see [Request::LighthousePersist]
     LighthouseGeometryWrite { uri: String, id: u8, bs: u8, geometry: LighthouseBsGeometry },
     /// Read the calibration of base station `bs` from lighthouse memory `id`
     LighthouseCalibrationRead { uri: String, id: u8, bs: u8 },
+    /// Write the calibration of base station `bs` to lighthouse memory `id`.
+    /// The Crazyflie uses it until it restarts, see [Request::LighthousePersist]
     LighthouseCalibrationWrite { uri: String, id: u8, bs: u8, calibration: LighthouseBsCalibration },
     /// Write uncompressed trajectory segments to trajectory memory `id` at
     /// `start_addr`. Replies [Response::Written]
@@ -180,10 +284,21 @@ pub enum Request {
     LocoReadAnchor { uri: String, id: u8, anchor: u8 },
     /// Send a Loco Positioning Protocol packet to anchor `dest_id`, through the
     /// Crazyflie (e.g. an anchor position)
-    SendShortLppPacket { uri: String, dest_id: u8, data: Vec<u8> },
+    SendShortLppPacket {
+        uri: String,
+        dest_id: u8,
+        /// The packet's bytes
+        data: Vec<u8>,
+    },
     /// Store the geometries and calibrations of these base stations in the
     /// Crazyflie's flash. Replies [Response::Bool]: whether the Crazyflie did
-    LighthousePersist { uri: String, geometries: Vec<u8>, calibrations: Vec<u8> },
+    LighthousePersist {
+        uri: String,
+        /// Base stations whose geometry to store
+        geometries: Vec<u8>,
+        /// Base stations whose calibration to store
+        calibrations: Vec<u8>,
+    },
 
     /// A command the Crazyflie's nRF51 handles, sent without connecting to it.
     /// Its clients are disconnected, except by [PlatformCommand::PowerOnStm32Domain].
@@ -202,6 +317,7 @@ pub enum Request {
 
 /// Commands for [Request::Platform], named after the crazyflie-lib functions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum PlatformCommand {
     /// Restart the firmware. The reply comes once the firmware answers again;
@@ -221,6 +337,7 @@ pub enum PlatformCommand {
 
 /// A firmware image for [Request::Flash]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct FlashImage {
     /// `stm32` or `nrf51`
     pub target: String,
@@ -233,6 +350,7 @@ pub struct FlashImage {
 
 /// Where a [FlashImage] is written
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum FlashStart {
     Address(u32),
@@ -241,6 +359,7 @@ pub enum FlashStart {
 
 /// A message from the server
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
     /// Answer to the request with the same `id`. Exactly one of `ok` and `error` is set
@@ -259,18 +378,32 @@ pub enum ServerMessage {
 
 /// Reply payloads
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Response {
+    /// Done, nothing to return
     Done,
-    Hello { server: String, protocol: u32 },
+    Hello {
+        /// The server's name
+        server: String,
+        /// The protocol version, [PROTOCOL_VERSION]
+        protocol: u32,
+    },
+    /// The Crazyflies that answered
     Scan { found: Vec<CfInfo> },
+    /// The Crazyflies the server is connected to
     List { connected: Vec<CfInfo> },
+    /// The Crazyflie attached to
     Attached(AttachInfo),
+    /// A param value
     Value { value: f64 },
     PersistentState(PersistentParamState),
     LinkStatistics(LinkStatistics),
-    /// Bytes, base64 encoded
-    Data { data: String },
+    /// Bytes read
+    Data {
+        /// base64 encoded
+        data: String,
+    },
     Bool { value: bool },
     OneWire(OneWireMemory),
     EepromConfig(EepromConfig),
@@ -278,16 +411,26 @@ pub enum Response {
     LighthouseCalibration(LighthouseBsCalibration),
     /// Bytes written
     Written { bytes: u64 },
+    /// Loco anchor ids
     Ids { ids: Vec<u8> },
     LocoAnchor(LocoAnchorData),
 }
 
 /// Stream payloads
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Event {
+    /// A client set a param
     ParamChanged { name: String, value: f64 },
-    Log { timestamp: u32, values: BTreeMap<String, f64> },
+    /// Samples of a log block
+    Log {
+        /// Milliseconds since the Crazyflie started, when sampled
+        timestamp: u32,
+        /// By variable name
+        values: BTreeMap<String, f64>,
+    },
+    /// A line the Crazyflie printed, without the newline
     Console { line: String },
     /// Sweep angles of the four sensors, in radians, from one base station
     LighthouseAngles { base_station: u8, x: [f32; 4], y: [f32; 4] },
@@ -309,12 +452,12 @@ pub enum Event {
     /// A job took the Crazyflie over (e.g. flashing): attaching to it fails
     /// until it is [Event::Available] again
     Busy { uri: String, reason: String },
-    /// The job on the Crazyflie is done. `connected`: the server connected it
-    /// again, so attaching to it is immediate. `moved_to`: it was rebooted
-    /// onto another channel or address, and answers there now
+    /// The job on the Crazyflie is done
     Available {
         uri: String,
+        /// The server connected it again, so attaching to it is immediate
         connected: bool,
+        /// It was rebooted onto another channel or address, and answers there now
         #[serde(default, skip_serializing_if = "Option::is_none")]
         moved_to: Option<String>,
     },
@@ -324,25 +467,33 @@ pub enum Event {
 
 /// A Crazyflie found by a scan or connected on the server
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct CfInfo {
     /// Normalized URI, see [normalize_uri]
     pub uri: String,
     /// Names of the clients attached to it
     pub clients: Vec<String>,
-    /// The server's Crazyradio it is connected or answered on, `None` for USB
+    /// The server's Crazyradio it is connected or answered on, left out for USB
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub radio: Option<usize>,
 }
 
 /// What a client learns when it attaches
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct AttachInfo {
+    /// Normalized URI
     pub uri: String,
+    /// e.g. `2025.12`, when the firmware tells
     pub firmware_version: Option<String>,
+    /// e.g. `Crazyflie 2.1`, when the firmware tells
     pub device_type: Option<String>,
+    /// The firmware's CRTP protocol version
     #[serde(default)]
     pub protocol_version: Option<u8>,
+    /// The param TOC
     pub params: Vec<TocItem>,
+    /// The log TOC
     pub log_vars: Vec<TocItem>,
     /// The Crazyflie's memories, as listed when it was connected
     #[serde(default)]
@@ -351,7 +502,9 @@ pub struct AttachInfo {
 
 /// One memory of a Crazyflie, see `crazyflie_lib::subsystems::memory::MemoryDevice`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct MemoryInfo {
+    /// The `id` memory calls take
     pub id: u8,
     #[serde(rename = "type")]
     pub memory_type: MemoryType,
@@ -364,6 +517,7 @@ pub struct MemoryInfo {
 
 /// Memory types, named as in `crazyflie_lib::subsystems::memory::MemoryType`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 #[allow(clippy::upper_case_acronyms)]
 pub enum MemoryType {
@@ -386,15 +540,20 @@ pub enum MemoryType {
     DeckCtrl,
     DeckMultiranger,
     DeckPaa3905,
-    #[serde(other)]
+    /// A memory type this version doesn't know
+    #[serde(other, rename = "unknown")]
     UNKNOWN,
 }
 
 /// A deck's 1-wire memory, see `crazyflie_lib::subsystems::memory::OwMemory`
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct OneWireMemory {
+    /// Bitmask of the deck pins the deck uses
     pub used_pins: u32,
+    /// Vendor id
     pub vid: u8,
+    /// Product id
     pub pid: u8,
     /// e.g. `boardName`, `revision`
     pub elements: BTreeMap<String, String>,
@@ -402,7 +561,9 @@ pub struct OneWireMemory {
 
 /// The EEPROM config, see `crazyflie_lib::subsystems::memory::EEPROMConfigMemory`
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct EepromConfig {
+    /// 0 to 125
     pub radio_channel: u8,
     /// 0: 250 kbit/s, 1: 1 Mbit/s, 2: 2 Mbit/s
     pub radio_speed: u8,
@@ -415,8 +576,11 @@ pub struct EepromConfig {
 /// Where a lighthouse base station is, see
 /// `crazyflie_lib::subsystems::memory::LighthouseBsGeometry`
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct LighthouseBsGeometry {
+    /// Meters
     pub origin: [f32; 3],
+    /// Rows
     pub rotation_matrix: [[f32; 3]; 3],
     pub valid: bool,
 }
@@ -424,8 +588,10 @@ pub struct LighthouseBsGeometry {
 /// A lighthouse base station's calibration, see
 /// `crazyflie_lib::subsystems::memory::LighthouseBsCalibration`
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct LighthouseBsCalibration {
     pub sweeps: [LighthouseCalibrationSweep; 2],
+    /// The base station's id
     pub uid: u32,
     pub valid: bool,
 }
@@ -433,6 +599,7 @@ pub struct LighthouseBsCalibration {
 /// A polynomial of up to 8 coefficients, see
 /// `crazyflie_lib::subsystems::memory::Poly`
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct Poly {
     pub values: [f32; 8],
 }
@@ -454,6 +621,7 @@ impl Poly {
 /// An uncompressed trajectory segment, see
 /// `crazyflie_lib::subsystems::memory::Poly4D`
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct Poly4D {
     /// Seconds
     pub duration: f32,
@@ -472,10 +640,15 @@ impl Poly4D {
 /// Where a compressed trajectory starts, see
 /// `crazyflie_lib::subsystems::memory::CompressedStart`
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct CompressedStart {
+    /// Meters
     pub x: f32,
+    /// Meters
     pub y: f32,
+    /// Meters
     pub z: f32,
+    /// Radians
     pub yaw: f32,
 }
 
@@ -488,6 +661,7 @@ impl CompressedStart {
 /// A compressed trajectory segment: the Bézier control points of each axis,
 /// 0, 1, 3 or 7 of them, see `crazyflie_lib::subsystems::memory::CompressedSegment`
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct CompressedSegment {
     /// Seconds
     pub duration: f32,
@@ -511,13 +685,17 @@ impl CompressedSegment {
 
 /// A Loco Positioning anchor, see `crazyflie_lib::subsystems::memory::LocoAnchorData`
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct LocoAnchorData {
     /// Meters
     pub position: [f32; 3],
     pub is_valid: bool,
 }
 
+/// The calibration of one of a base station's two sweeps, see
+/// `crazyflie_lib::subsystems::memory::LighthouseCalibrationSweep`
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct LighthouseCalibrationSweep {
     pub phase: f32,
     pub tilt: f32,
@@ -530,6 +708,7 @@ pub struct LighthouseCalibrationSweep {
 
 /// One param or log variable
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct TocItem {
     pub name: String,
     /// Firmware type, e.g. `u8` or `f32`
@@ -542,21 +721,34 @@ pub struct TocItem {
 /// Default and stored value of a persistent param, see
 /// `crazyflie_lib::subsystems::param::PersistentParamState`
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct PersistentParamState {
+    /// A value is stored in the EEPROM
     pub is_stored: bool,
+    /// The firmware's default
     pub default_value: f64,
+    /// The stored value, when `is_stored`
     pub stored_value: Option<f64>,
 }
 
-/// Radio link statistics, see `crazyflie_lib::subsystems::link_service::Statistics`
+/// Radio link statistics, see `crazyflie_lib::subsystems::link_service::Statistics`.
+/// Every field is `null` over USB, `rssi` also with a Crazyradio that doesn't measure it
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct LinkStatistics {
+    /// Share of packets acked, 0 to 1
     pub link_quality: Option<f32>,
+    /// Data packets sent per second, without the empty ones that poll the Crazyflie
     pub uplink_rate: Option<f32>,
+    /// Packets received per second
     pub downlink_rate: Option<f32>,
+    /// Packets sent per second, with the empty ones
     pub radio_send_rate: Option<f32>,
+    /// Retries per acked packet
     pub avg_retries: Option<f32>,
+    /// Share of acks where the nRF24 power detector triggered, 0 to 1
     pub power_detector_rate: Option<f32>,
+    /// dBm, measured by the Crazyradio on acks
     pub rssi: Option<f32>,
 }
 
@@ -622,6 +814,9 @@ pub fn normalize_uri(uri: &str) -> Result<NormalizedUri, String> {
     };
     Ok(NormalizedUri { key: format!("radio:///{channel}/{datarate}/{address}"), radio, options })
 }
+
+#[cfg(test)]
+mod reference;
 
 #[cfg(test)]
 mod tests {
@@ -691,3 +886,4 @@ mod tests {
         );
     }
 }
+

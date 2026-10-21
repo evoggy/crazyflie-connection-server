@@ -49,9 +49,16 @@ on a trusted network or over a tunnel.
 ## Other languages
 
 Any language with a WebSocket library can use the server: every message is
-one JSON text frame, defined in `crates/protocol/src/lib.rs`.
+one JSON text frame. [The protocol guide](docs/protocol.md) explains requests,
+replies and streams, [the reference](docs/protocol-reference.md) has every
+call with an example, and [protocol.schema.json](docs/protocol.schema.json)
+is the JSON Schema of the messages.
 [`examples/python/raw_client.py`](examples/python/raw_client.py) attaches,
 reads a parameter and subscribes to a log variable in about 40 lines.
+
+The reference and the schema are generated from `crates/protocol/src/lib.rs`:
+`cargo test` writes them again and fails when they changed, until they are
+committed. A new call needs an example in `crates/protocol/src/reference.rs`.
 
 ## Status
 

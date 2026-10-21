@@ -5,7 +5,7 @@
     python raw_client.py radio:///80/2M/E7E7E7E7E7 [ws://host:7777/]
 
 Attaches to the Crazyflie, reads a parameter and prints a few log samples.
-The messages are defined in crates/protocol/src/lib.rs.
+The messages are described in docs/protocol.md and docs/protocol-reference.md.
 """
 
 import asyncio

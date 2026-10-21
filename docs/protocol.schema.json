@@ -1,0 +1,3092 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Crazyflie connection protocol",
+  "description": "Version 1. The messages between the Crazyflie connection server and its clients, each one JSON text frame on a WebSocket. Generated from crates/protocol/src/lib.rs",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/ClientMessage"
+    },
+    {
+      "$ref": "#/$defs/ServerMessage"
+    }
+  ],
+  "$defs": {
+    "ClientMessage": {
+      "required": [
+        "id"
+      ],
+      "oneOf": [
+        {
+          "description": "Name this client, shown to other clients in scan and list results",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "hello"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Scan all channels for Crazyflies at an address. Refused while a job runs",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "scan"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "address": {
+                  "description": "10 hex digits, E7E7E7E7E7 when not given",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Check which of these Crazyflies answer, one packet each, without connecting. Connected ones answer without radio traffic",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "scan_selected"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uris": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "uris"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "List the Crazyflies the server is connected to",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "list"
+            }
+          },
+          "required": [
+            "call"
+          ]
+        },
+        {
+          "description": "Attach to a Crazyflie, connecting it if no other client has",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "attach"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "uri"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Detach from a Crazyflie. It is disconnected a while (the server's linger time) after its last client detaches",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "detach"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "uri"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Read a param from the Crazyflie",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "param_get"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "uri",
+                "name"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Set a param. Every value is a number, converted to the param's type",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "param_set"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "number",
+                  "format": "double"
+                }
+              },
+              "required": [
+                "uri",
+                "name",
+                "value"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Stream of `param_changed` event for every param set by any client",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "param_watch"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "sub": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "uri",
+                "sub"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Whether a param can be stored in the EEPROM. Replies `bool` reply. Asks the Crazyflie, so it isn't part of `AttachInfo`",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "param_is_persistent"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "uri",
+                "name"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Default and stored value of a persistent param",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "param_persistent_state"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "uri",
+                "name"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Store the current value of a persistent param in the Crazyflie's EEPROM",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "param_persistent_store"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "uri",
+                "name"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Clear the stored value of a persistent param",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "param_persistent_clear"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "uri",
+                "name"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Stream of `log` event with the given variables. Variables that don't fit one log block (26 bytes) are spread over several, each arriving as its own event",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "log_subscribe"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "sub": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0
+                },
+                "vars": {
+                  "description": "Log variable names, `group.name`",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "period_ms": {
+                  "description": "Milliseconds between samples, 10 to 2550",
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "uri",
+                "sub",
+                "vars",
+                "period_ms"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Stream of `console` event lines",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "console_subscribe"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "sub": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0
+                },
+                "history": {
+                  "description": "Start with the lines printed since the Crazyflie was connected",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "uri",
+                "sub",
+                "history"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Stream of `lighthouse_angles` event. The Crazyflie sends them only while the `locSrv.enLhAngleStream` param is 1",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "lighthouse_angle_subscribe"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "sub": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "uri",
+                "sub"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Stop a stream opened with `sub`",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "unsubscribe"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "sub": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "sub"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Take off from the current position. The reply comes when the command is sent, not when the Crazyflie is up",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "take_off"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "height": {
+                  "description": "Meters above the world origin",
+                  "type": "number",
+                  "format": "float"
+                },
+                "yaw": {
+                  "description": "Radians, the current yaw when not given",
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "format": "float"
+                },
+                "duration": {
+                  "description": "Seconds to reach `height`",
+                  "type": "number",
+                  "format": "float"
+                },
+                "group_mask": {
+                  "description": "The groups of Crazyflies that obey, all when not given",
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                }
+              },
+              "required": [
+                "uri",
+                "height",
+                "duration"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Land at the current position",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "land"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "height": {
+                  "description": "Meters above the world origin",
+                  "type": "number",
+                  "format": "float"
+                },
+                "yaw": {
+                  "description": "Radians, the current yaw when not given",
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "format": "float"
+                },
+                "duration": {
+                  "description": "Seconds to reach `height`",
+                  "type": "number",
+                  "format": "float"
+                },
+                "group_mask": {
+                  "description": "The groups of Crazyflies that obey, all when not given",
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                }
+              },
+              "required": [
+                "uri",
+                "height",
+                "duration"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Stop the high-level command and the motors",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "stop"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "group_mask": {
+                  "description": "The groups of Crazyflies that obey, all when not given",
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                }
+              },
+              "required": [
+                "uri"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Fly to a position",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "go_to"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "x": {
+                  "description": "Meters",
+                  "type": "number",
+                  "format": "float"
+                },
+                "y": {
+                  "description": "Meters",
+                  "type": "number",
+                  "format": "float"
+                },
+                "z": {
+                  "description": "Meters",
+                  "type": "number",
+                  "format": "float"
+                },
+                "yaw": {
+                  "description": "Radians",
+                  "type": "number",
+                  "format": "float"
+                },
+                "duration": {
+                  "description": "Seconds to get there",
+                  "type": "number",
+                  "format": "float"
+                },
+                "relative": {
+                  "description": "The position and yaw are relative to the current ones",
+                  "type": "boolean"
+                },
+                "linear": {
+                  "description": "A straight line at constant speed instead of a smooth polynomial",
+                  "type": "boolean"
+                },
+                "group_mask": {
+                  "description": "The groups of Crazyflies that obey, all when not given",
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                }
+              },
+              "required": [
+                "uri",
+                "x",
+                "y",
+                "z",
+                "yaw",
+                "duration",
+                "relative",
+                "linear"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Define trajectory `id` as `num_pieces` pieces at `memory_offset` in the trajectory memory",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "define_trajectory"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "memory_offset": {
+                  "description": "Bytes into the trajectory memory",
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                },
+                "num_pieces": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "trajectory_type": {
+                  "description": "0: uncompressed (the default), 1: compressed",
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                }
+              },
+              "required": [
+                "uri",
+                "id",
+                "memory_offset",
+                "num_pieces"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Fly trajectory `id`",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "start_trajectory"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "time_scale": {
+                  "description": "1 flies it as defined, 2 twice as slow",
+                  "type": "number",
+                  "format": "float"
+                },
+                "relative_position": {
+                  "description": "Shift it to start at the current position",
+                  "type": "boolean"
+                },
+                "relative_yaw": {
+                  "description": "Turn it to start at the current yaw",
+                  "type": "boolean"
+                },
+                "reversed": {
+                  "description": "Fly it backwards",
+                  "type": "boolean"
+                },
+                "group_mask": {
+                  "description": "The groups of Crazyflies that obey, all when not given",
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                }
+              },
+              "required": [
+                "uri",
+                "id",
+                "time_scale",
+                "relative_position",
+                "relative_yaw",
+                "reversed"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Low-level setpoint, sent repeatedly. The thrust is locked until a setpoint with thrust 0 is sent",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "setpoint_rpyt"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "roll": {
+                  "description": "Degrees",
+                  "type": "number",
+                  "format": "float"
+                },
+                "pitch": {
+                  "description": "Degrees",
+                  "type": "number",
+                  "format": "float"
+                },
+                "yawrate": {
+                  "description": "Degrees/s",
+                  "type": "number",
+                  "format": "float"
+                },
+                "thrust": {
+                  "description": "0 to 65535",
+                  "type": "integer",
+                  "format": "uint16",
+                  "minimum": 0,
+                  "maximum": 65535
+                }
+              },
+              "required": [
+                "uri",
+                "roll",
+                "pitch",
+                "yawrate",
+                "thrust"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "End the low-level setpoints, so that the high-level commander takes over",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "notify_setpoint_stop"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "remain_valid_ms": {
+                  "description": "How long the last setpoint still holds, 0 for no time",
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "uri",
+                "remain_valid_ms"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Arm or disarm the motors",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "arming_request"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "arm": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "uri",
+                "arm"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Stop the motors at once. The Crazyflie has to be restarted to fly again",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "emergency_stop"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "uri"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Recover a Crazyflie that crashed (tumbled)",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "crash_recovery"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "uri"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "The radio link's statistics",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "link_statistics"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "uri"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Restart the Crazyflies into their bootloaders, flash the images to each and restart them into their firmware, as a job on stream `sub`: `progress` event, one `flashed` event or `flash_failed` event per Crazyflie, then `done` event. The images are for one platform. The Crazyflies whose bootloaders take broadcast get each image at the same time, the others one after another. Clients attached to them are disconnected, and attaching and scanning are refused until the job is done. The job finishes even if the client that started it goes away",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "flash"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uris": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "sub": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0
+                },
+                "images": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/FlashImage"
+                  }
+                }
+              },
+              "required": [
+                "uris",
+                "sub",
+                "images"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Stream of `busy` event and `available` event: the Crazyflies that jobs take over and give back",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "watch"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "sub": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "sub"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Read `length` bytes of memory `id` (see `memories`) from `address`",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "memory_read"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "address": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                },
+                "length": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "uri",
+                "id",
+                "address",
+                "length"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Write `data` to memory `id` at `address`",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "memory_write"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "address": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                },
+                "data": {
+                  "description": "The bytes, base64 encoded",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "uri",
+                "id",
+                "address",
+                "data"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Read a deck's 1-wire memory `id`: its ids and elements (board name, revision, …)",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "one_wire_read"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                }
+              },
+              "required": [
+                "uri",
+                "id"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Read the EEPROM config memory `id`",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "eeprom_config_read"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                }
+              },
+              "required": [
+                "uri",
+                "id"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Write the EEPROM config memory `id`. The firmware applies it at boot",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "eeprom_config_write"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "config": {
+                  "$ref": "#/$defs/EepromConfig"
+                }
+              },
+              "required": [
+                "uri",
+                "id",
+                "config"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Read the geometry of base station `bs` from lighthouse memory `id`",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "lighthouse_geometry_read"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "bs": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                }
+              },
+              "required": [
+                "uri",
+                "id",
+                "bs"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Write the geometry of base station `bs` to lighthouse memory `id`. The Crazyflie uses it until it restarts, see `lighthouse_persist`",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "lighthouse_geometry_write"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "bs": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "geometry": {
+                  "$ref": "#/$defs/LighthouseBsGeometry"
+                }
+              },
+              "required": [
+                "uri",
+                "id",
+                "bs",
+                "geometry"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Read the calibration of base station `bs` from lighthouse memory `id`",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "lighthouse_calibration_read"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "bs": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                }
+              },
+              "required": [
+                "uri",
+                "id",
+                "bs"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Write the calibration of base station `bs` to lighthouse memory `id`. The Crazyflie uses it until it restarts, see `lighthouse_persist`",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "lighthouse_calibration_write"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "bs": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "calibration": {
+                  "$ref": "#/$defs/LighthouseBsCalibration"
+                }
+              },
+              "required": [
+                "uri",
+                "id",
+                "bs",
+                "calibration"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Write uncompressed trajectory segments to trajectory memory `id` at `start_addr`. Replies `written` reply",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "trajectory_write_uncompressed"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "start_addr": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                },
+                "segments": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Poly4D"
+                  }
+                }
+              },
+              "required": [
+                "uri",
+                "id",
+                "start_addr",
+                "segments"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Write a compressed trajectory to trajectory memory `id` at `start_addr`. Replies `written` reply",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "trajectory_write_compressed"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "start_addr": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                },
+                "start": {
+                  "$ref": "#/$defs/CompressedStart"
+                },
+                "segments": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/CompressedSegment"
+                  }
+                }
+              },
+              "required": [
+                "uri",
+                "id",
+                "start_addr",
+                "start",
+                "segments"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "The anchor ids in Loco memory `id`: all configured ones, or the `active` ones. Replies `ids` reply",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "loco_read_id_list"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "active": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "uri",
+                "id",
+                "active"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "The position of `anchor` in Loco memory `id`",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "loco_read_anchor"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "anchor": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                }
+              },
+              "required": [
+                "uri",
+                "id",
+                "anchor"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Send a Loco Positioning Protocol packet to anchor `dest_id`, through the Crazyflie (e.g. an anchor position)",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "send_short_lpp_packet"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "dest_id": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "data": {
+                  "description": "The packet's bytes",
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "uint8",
+                    "minimum": 0,
+                    "maximum": 255
+                  }
+                }
+              },
+              "required": [
+                "uri",
+                "dest_id",
+                "data"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "Store the geometries and calibrations of these base stations in the Crazyflie's flash. Replies `bool` reply: whether the Crazyflie did",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "lighthouse_persist"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "geometries": {
+                  "description": "Base stations whose geometry to store",
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "uint8",
+                    "minimum": 0,
+                    "maximum": 255
+                  }
+                },
+                "calibrations": {
+                  "description": "Base stations whose calibration to store",
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "uint8",
+                    "minimum": 0,
+                    "maximum": 255
+                  }
+                }
+              },
+              "required": [
+                "uri",
+                "geometries",
+                "calibrations"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        },
+        {
+          "description": "A command the Crazyflie's nRF51 handles, sent without connecting to it. Its clients are disconnected, except by `power_on_stm32_domain`. Fails if it doesn't answer",
+          "type": "object",
+          "properties": {
+            "call": {
+              "type": "string",
+              "const": "platform"
+            },
+            "args": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "command": {
+                  "$ref": "#/$defs/PlatformCommand"
+                },
+                "new_uri": {
+                  "description": "With `reboot`, where the Crazyflie comes back when its radio channel or address was changed in its EEPROM config: the reply waits for its firmware there, it isn't connected again, and `available` event says where it moved",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "uri",
+                "command"
+              ]
+            }
+          },
+          "required": [
+            "call",
+            "args"
+          ]
+        }
+      ],
+      "description": "A request from a client",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Picked by the client, echoed in the reply",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      }
+    },
+    "ServerMessage": {
+      "description": "A message from the server",
+      "oneOf": [
+        {
+          "description": "Answer to the request with the same `id`. Exactly one of `ok` and `error` is set",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "reply"
+            },
+            "id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "ok": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Response"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "error": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "id"
+          ]
+        },
+        {
+          "description": "Data on a stream opened by the client with `sub`",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "event"
+            },
+            "sub": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "event": {
+              "$ref": "#/$defs/Event"
+            }
+          },
+          "required": [
+            "type",
+            "sub",
+            "event"
+          ]
+        },
+        {
+          "description": "A Crazyflie this client is attached to was disconnected",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "disconnected"
+            },
+            "uri": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "uri",
+            "reason"
+          ]
+        }
+      ]
+    },
+    "FlashImage": {
+      "description": "A firmware image for `flash`",
+      "type": "object",
+      "properties": {
+        "target": {
+          "description": "`stm32` or `nrf51`",
+          "type": "string"
+        },
+        "start": {
+          "description": "Where to write the image; the start of the firmware area when not given",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FlashStart"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "data": {
+          "description": "The image, base64 encoded",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target",
+        "data"
+      ]
+    },
+    "FlashStart": {
+      "description": "Where a `FlashImage` is written",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "address": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "address"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "page": {
+              "type": "integer",
+              "format": "uint16",
+              "minimum": 0,
+              "maximum": 65535
+            }
+          },
+          "required": [
+            "page"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "EepromConfig": {
+      "description": "The EEPROM config, see `crazyflie_lib::subsystems::memory::EEPROMConfigMemory`",
+      "type": "object",
+      "properties": {
+        "radio_channel": {
+          "description": "0 to 125",
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "radio_speed": {
+          "description": "0: 250 kbit/s, 1: 1 Mbit/s, 2: 2 Mbit/s",
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "radio_address": {
+          "description": "10 hex digits",
+          "type": "string"
+        },
+        "pitch_trim": {
+          "type": "number",
+          "format": "float"
+        },
+        "roll_trim": {
+          "type": "number",
+          "format": "float"
+        }
+      },
+      "required": [
+        "radio_channel",
+        "radio_speed",
+        "radio_address",
+        "pitch_trim",
+        "roll_trim"
+      ]
+    },
+    "LighthouseBsGeometry": {
+      "description": "Where a lighthouse base station is, see `crazyflie_lib::subsystems::memory::LighthouseBsGeometry`",
+      "type": "object",
+      "properties": {
+        "origin": {
+          "description": "Meters",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "rotation_matrix": {
+          "description": "Rows",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "float"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "valid": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "origin",
+        "rotation_matrix",
+        "valid"
+      ]
+    },
+    "LighthouseBsCalibration": {
+      "description": "A lighthouse base station's calibration, see `crazyflie_lib::subsystems::memory::LighthouseBsCalibration`",
+      "type": "object",
+      "properties": {
+        "sweeps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LighthouseCalibrationSweep"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "uid": {
+          "description": "The base station's id",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "valid": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "sweeps",
+        "uid",
+        "valid"
+      ]
+    },
+    "LighthouseCalibrationSweep": {
+      "description": "The calibration of one of a base station's two sweeps, see `crazyflie_lib::subsystems::memory::LighthouseCalibrationSweep`",
+      "type": "object",
+      "properties": {
+        "phase": {
+          "type": "number",
+          "format": "float"
+        },
+        "tilt": {
+          "type": "number",
+          "format": "float"
+        },
+        "curve": {
+          "type": "number",
+          "format": "float"
+        },
+        "gibmag": {
+          "type": "number",
+          "format": "float"
+        },
+        "gibphase": {
+          "type": "number",
+          "format": "float"
+        },
+        "ogeemag": {
+          "type": "number",
+          "format": "float"
+        },
+        "ogeephase": {
+          "type": "number",
+          "format": "float"
+        }
+      },
+      "required": [
+        "phase",
+        "tilt",
+        "curve",
+        "gibmag",
+        "gibphase",
+        "ogeemag",
+        "ogeephase"
+      ]
+    },
+    "Poly4D": {
+      "description": "An uncompressed trajectory segment, see `crazyflie_lib::subsystems::memory::Poly4D`",
+      "type": "object",
+      "properties": {
+        "duration": {
+          "description": "Seconds",
+          "type": "number",
+          "format": "float"
+        },
+        "x": {
+          "$ref": "#/$defs/Poly"
+        },
+        "y": {
+          "$ref": "#/$defs/Poly"
+        },
+        "z": {
+          "$ref": "#/$defs/Poly"
+        },
+        "yaw": {
+          "$ref": "#/$defs/Poly"
+        }
+      },
+      "required": [
+        "duration",
+        "x",
+        "y",
+        "z",
+        "yaw"
+      ]
+    },
+    "Poly": {
+      "description": "A polynomial of up to 8 coefficients, see `crazyflie_lib::subsystems::memory::Poly`",
+      "type": "object",
+      "properties": {
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          },
+          "minItems": 8,
+          "maxItems": 8
+        }
+      },
+      "required": [
+        "values"
+      ]
+    },
+    "CompressedStart": {
+      "description": "Where a compressed trajectory starts, see `crazyflie_lib::subsystems::memory::CompressedStart`",
+      "type": "object",
+      "properties": {
+        "x": {
+          "description": "Meters",
+          "type": "number",
+          "format": "float"
+        },
+        "y": {
+          "description": "Meters",
+          "type": "number",
+          "format": "float"
+        },
+        "z": {
+          "description": "Meters",
+          "type": "number",
+          "format": "float"
+        },
+        "yaw": {
+          "description": "Radians",
+          "type": "number",
+          "format": "float"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "z",
+        "yaw"
+      ]
+    },
+    "CompressedSegment": {
+      "description": "A compressed trajectory segment: the Bézier control points of each axis, 0, 1, 3 or 7 of them, see `crazyflie_lib::subsystems::memory::CompressedSegment`",
+      "type": "object",
+      "properties": {
+        "duration": {
+          "description": "Seconds",
+          "type": "number",
+          "format": "float"
+        },
+        "x": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          }
+        },
+        "y": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          }
+        },
+        "z": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          }
+        },
+        "yaw": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      },
+      "required": [
+        "duration",
+        "x",
+        "y",
+        "z",
+        "yaw"
+      ]
+    },
+    "PlatformCommand": {
+      "description": "Commands for `platform`, named after the crazyflie-lib functions",
+      "oneOf": [
+        {
+          "description": "Restart the firmware. The reply comes once the firmware answers again; meanwhile the Crazyflie is busy (`busy` event), and a client that was attached gets it back connected (`available` event)",
+          "type": "string",
+          "const": "reboot"
+        },
+        {
+          "description": "Power off the whole Crazyflie, as the power button does. Only the button turns it on again",
+          "type": "string",
+          "const": "power_off_all"
+        },
+        {
+          "description": "Power off the STM32 and decks (sleep). The nRF51 stays on the radio. The Crazyflie is announced busy, and attaching fails until it is woken up",
+          "type": "string",
+          "const": "power_off_stm32_domain"
+        },
+        {
+          "description": "Power the STM32 and decks on again (wake up). The reply comes once the firmware answers; the Crazyflie is then announced available",
+          "type": "string",
+          "const": "power_on_stm32_domain"
+        }
+      ]
+    },
+    "Response": {
+      "description": "Reply payloads",
+      "oneOf": [
+        {
+          "description": "Done, nothing to return",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "done"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "hello"
+            },
+            "server": {
+              "description": "The server's name",
+              "type": "string"
+            },
+            "protocol": {
+              "description": "The protocol version, `1`",
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "kind",
+            "server",
+            "protocol"
+          ]
+        },
+        {
+          "description": "The Crazyflies that answered",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "scan"
+            },
+            "found": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/CfInfo"
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "found"
+          ]
+        },
+        {
+          "description": "The Crazyflies the server is connected to",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "list"
+            },
+            "connected": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/CfInfo"
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "connected"
+          ]
+        },
+        {
+          "description": "The Crazyflie attached to",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "attached"
+            }
+          },
+          "$ref": "#/$defs/AttachInfo",
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "A param value",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "value"
+            },
+            "value": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "persistent_state"
+            }
+          },
+          "$ref": "#/$defs/PersistentParamState",
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "link_statistics"
+            }
+          },
+          "$ref": "#/$defs/LinkStatistics",
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "Bytes read",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "data"
+            },
+            "data": {
+              "description": "base64 encoded",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "bool"
+            },
+            "value": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "one_wire"
+            }
+          },
+          "$ref": "#/$defs/OneWireMemory",
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "eeprom_config"
+            }
+          },
+          "$ref": "#/$defs/EepromConfig",
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "lighthouse_geometry"
+            }
+          },
+          "$ref": "#/$defs/LighthouseBsGeometry",
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "lighthouse_calibration"
+            }
+          },
+          "$ref": "#/$defs/LighthouseBsCalibration",
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "Bytes written",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "written"
+            },
+            "bytes": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "kind",
+            "bytes"
+          ]
+        },
+        {
+          "description": "Loco anchor ids",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "ids"
+            },
+            "ids": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "format": "uint8",
+                "minimum": 0,
+                "maximum": 255
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "ids"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "loco_anchor"
+            }
+          },
+          "$ref": "#/$defs/LocoAnchorData",
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
+    "CfInfo": {
+      "description": "A Crazyflie found by a scan or connected on the server",
+      "type": "object",
+      "properties": {
+        "uri": {
+          "description": "Normalized URI, see URIs",
+          "type": "string"
+        },
+        "clients": {
+          "description": "Names of the clients attached to it",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "radio": {
+          "description": "The server's Crazyradio it is connected or answered on, left out for USB",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "uri",
+        "clients"
+      ]
+    },
+    "TocItem": {
+      "description": "One param or log variable",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "description": "Firmware type, e.g. `u8` or `f32`",
+          "type": "string"
+        },
+        "writable": {
+          "description": "Always `true` for log variables",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "writable"
+      ]
+    },
+    "MemoryInfo": {
+      "description": "One memory of a Crazyflie, see `crazyflie_lib::subsystems::memory::MemoryDevice`",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The `id` memory calls take",
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "type": {
+          "$ref": "#/$defs/MemoryType"
+        },
+        "size": {
+          "description": "Size in bytes",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "serial": {
+          "description": "Serial number, e.g. a deck's 1-wire ROM id, as hex",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "size"
+      ]
+    },
+    "MemoryType": {
+      "description": "Memory types, named as in `crazyflie_lib::subsystems::memory::MemoryType`",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "eeprom_config",
+            "one_wire",
+            "driver_led",
+            "loco",
+            "trajectory",
+            "loco2",
+            "lighthouse",
+            "memory_tester",
+            "micro_sd",
+            "driver_led_timing",
+            "app",
+            "deck_memory",
+            "deck_ctrl_dfu",
+            "deck_ctrl",
+            "deck_multiranger",
+            "deck_paa3905"
+          ]
+        },
+        {
+          "description": "A memory type this version doesn't know",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "AttachInfo": {
+      "description": "What a client learns when it attaches",
+      "type": "object",
+      "properties": {
+        "uri": {
+          "description": "Normalized URI",
+          "type": "string"
+        },
+        "firmware_version": {
+          "description": "e.g. `2025.12`, when the firmware tells",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "device_type": {
+          "description": "e.g. `Crazyflie 2.1`, when the firmware tells",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "protocol_version": {
+          "description": "The firmware's CRTP protocol version",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255,
+          "default": null
+        },
+        "params": {
+          "description": "The param TOC",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TocItem"
+          }
+        },
+        "log_vars": {
+          "description": "The log TOC",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TocItem"
+          }
+        },
+        "memories": {
+          "description": "The Crazyflie's memories, as listed when it was connected",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MemoryInfo"
+          },
+          "default": []
+        }
+      },
+      "required": [
+        "uri",
+        "params",
+        "log_vars"
+      ]
+    },
+    "PersistentParamState": {
+      "description": "Default and stored value of a persistent param, see `crazyflie_lib::subsystems::param::PersistentParamState`",
+      "type": "object",
+      "properties": {
+        "is_stored": {
+          "description": "A value is stored in the EEPROM",
+          "type": "boolean"
+        },
+        "default_value": {
+          "description": "The firmware's default",
+          "type": "number",
+          "format": "double"
+        },
+        "stored_value": {
+          "description": "The stored value, when `is_stored`",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        }
+      },
+      "required": [
+        "is_stored",
+        "default_value"
+      ]
+    },
+    "LinkStatistics": {
+      "description": "Radio link statistics, see `crazyflie_lib::subsystems::link_service::Statistics`. Every field is `null` over USB, `rssi` also with a Crazyradio that doesn't measure it",
+      "type": "object",
+      "properties": {
+        "link_quality": {
+          "description": "Share of packets acked, 0 to 1",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "float"
+        },
+        "uplink_rate": {
+          "description": "Data packets sent per second, without the empty ones that poll the Crazyflie",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "float"
+        },
+        "downlink_rate": {
+          "description": "Packets received per second",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "float"
+        },
+        "radio_send_rate": {
+          "description": "Packets sent per second, with the empty ones",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "float"
+        },
+        "avg_retries": {
+          "description": "Retries per acked packet",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "float"
+        },
+        "power_detector_rate": {
+          "description": "Share of acks where the nRF24 power detector triggered, 0 to 1",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "float"
+        },
+        "rssi": {
+          "description": "dBm, measured by the Crazyradio on acks",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "float"
+        }
+      }
+    },
+    "OneWireMemory": {
+      "description": "A deck's 1-wire memory, see `crazyflie_lib::subsystems::memory::OwMemory`",
+      "type": "object",
+      "properties": {
+        "used_pins": {
+          "description": "Bitmask of the deck pins the deck uses",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "vid": {
+          "description": "Vendor id",
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "pid": {
+          "description": "Product id",
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "elements": {
+          "description": "e.g. `boardName`, `revision`",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "used_pins",
+        "vid",
+        "pid",
+        "elements"
+      ]
+    },
+    "LocoAnchorData": {
+      "description": "A Loco Positioning anchor, see `crazyflie_lib::subsystems::memory::LocoAnchorData`",
+      "type": "object",
+      "properties": {
+        "position": {
+          "description": "Meters",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "is_valid": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "position",
+        "is_valid"
+      ]
+    },
+    "Event": {
+      "description": "Stream payloads",
+      "oneOf": [
+        {
+          "description": "A client set a param",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "param_changed"
+            },
+            "name": {
+              "type": "string"
+            },
+            "value": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "value"
+          ]
+        },
+        {
+          "description": "Samples of a log block",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "log"
+            },
+            "timestamp": {
+              "description": "Milliseconds since the Crazyflie started, when sampled",
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "values": {
+              "description": "By variable name",
+              "type": "object",
+              "additionalProperties": {
+                "type": "number",
+                "format": "double"
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "timestamp",
+            "values"
+          ]
+        },
+        {
+          "description": "A line the Crazyflie printed, without the newline",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "console"
+            },
+            "line": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "line"
+          ]
+        },
+        {
+          "description": "Sweep angles of the four sensors, in radians, from one base station",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "lighthouse_angles"
+            },
+            "base_station": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "x": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "float"
+              },
+              "minItems": 4,
+              "maxItems": 4
+            },
+            "y": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "float"
+              },
+              "minItems": 4,
+              "maxItems": 4
+            }
+          },
+          "required": [
+            "kind",
+            "base_station",
+            "x",
+            "y"
+          ]
+        },
+        {
+          "description": "How far a job is: `done` of `total` for its current `step`, on the Crazyflie at `uri`, or on all of them (e.g. a broadcast) without one",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "progress"
+            },
+            "uri": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "step": {
+              "type": "string"
+            },
+            "done": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "total": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "kind",
+            "step",
+            "done",
+            "total"
+          ]
+        },
+        {
+          "description": "A Crazyflie of a flash job was flashed, `how`: e.g. `broadcast`",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "flashed"
+            },
+            "uri": {
+              "type": "string"
+            },
+            "how": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "uri",
+            "how"
+          ]
+        },
+        {
+          "description": "Flashing a Crazyflie of a flash job failed",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "flash_failed"
+            },
+            "uri": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "uri",
+            "reason"
+          ]
+        },
+        {
+          "description": "A job finished",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "done"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "A job took the Crazyflie over (e.g. flashing): attaching to it fails until it is `available` event again",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "busy"
+            },
+            "uri": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "uri",
+            "reason"
+          ]
+        },
+        {
+          "description": "The job on the Crazyflie is done",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "available"
+            },
+            "uri": {
+              "type": "string"
+            },
+            "connected": {
+              "description": "The server connected it again, so attaching to it is immediate",
+              "type": "boolean"
+            },
+            "moved_to": {
+              "description": "It was rebooted onto another channel or address, and answers there now",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "uri",
+            "connected"
+          ]
+        },
+        {
+          "description": "The stream ended on the server side (disconnect, log error, …)",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "ended"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ]
+        }
+      ]
+    }
+  }
+}
