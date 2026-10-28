@@ -19,7 +19,7 @@ A client that only talks to a server elsewhere can leave out crazyflie-lib,
 libusb and axum:
 
 ```toml
-crazyflie-connection-server = { version = "0.1", default-features = false }
+crazyflie-connection-server = { version = "0.2", default-features = false }
 ```
 
 The API is documented on [docs.rs](https://docs.rs/crazyflie-connection-server).
