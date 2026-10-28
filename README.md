@@ -11,12 +11,18 @@ Swarmkeeper monitoring while a script flies).
 | `crazyflie-connection-server` | The client API, named like crazyflie-lib, and the server. A program uses `Client` in every mode; with the `server` feature (on by default) the server can run inside it |
 | `crazyflie-connection-protocol` | The messages, JSON over WebSocket. Depends on serde only |
 
+```sh
+cargo add crazyflie-connection-server
+```
+
 A client that only talks to a server elsewhere can leave out crazyflie-lib,
 libusb and axum:
 
 ```toml
 crazyflie-connection-server = { version = "0.1", default-features = false }
 ```
+
+The API is documented on [docs.rs](https://docs.rs/crazyflie-connection-server).
 
 ## Try it
 
@@ -49,11 +55,11 @@ on a trusted network or over a tunnel.
 ## Other languages
 
 Any language with a WebSocket library can use the server: every message is
-one JSON text frame. [The protocol guide](docs/protocol.md) explains requests,
-replies and streams, [the reference](docs/protocol-reference.md) has every
-call with an example, and [protocol.schema.json](docs/protocol.schema.json)
+one JSON text frame. [The protocol guide](https://github.com/evoggy/crazyflie-connection-server/blob/main/docs/protocol.md) explains requests,
+replies and streams, [the reference](https://github.com/evoggy/crazyflie-connection-server/blob/main/docs/protocol-reference.md) has every
+call with an example, and [protocol.schema.json](https://github.com/evoggy/crazyflie-connection-server/blob/main/docs/protocol.schema.json)
 is the JSON Schema of the messages.
-[`examples/python/raw_client.py`](examples/python/raw_client.py) attaches,
+[`examples/python/raw_client.py`](https://github.com/evoggy/crazyflie-connection-server/blob/main/examples/python/raw_client.py) attaches,
 reads a parameter and subscribes to a log variable in about 40 lines.
 
 The reference and the schema are generated from `crates/protocol/src/lib.rs`:
@@ -62,7 +68,8 @@ committed. A new call needs an example in `crates/protocol/src/reference.rs`.
 
 ## Status
 
-Prototype. Supported: scan (all channels, or which of a list of Crazyflies
+Early: the protocol and the API can still change between 0.x versions.
+Supported: scan (all channels, or which of a list of Crazyflies
 answer), list, attach, params (get/set/watch, persistent state/store/clear,
 shared cache), log subscriptions (spread over as many log blocks as they
 need), console, high-level commander (take-off, land, go-to, stop, define and
@@ -88,3 +95,8 @@ For tools with their own connection code, `Client::adopt` serves a Crazyflie
 the tool connected itself, and in direct and shared mode `Crazyflie::lib()`
 gives the crazyflie-lib `Crazyflie` behind a handle for what the API does not
 cover yet.
+
+## License
+
+Licensed under either of [Apache License, Version 2.0](https://github.com/evoggy/crazyflie-connection-server/blob/main/LICENSE-APACHE)
+or [MIT license](https://github.com/evoggy/crazyflie-connection-server/blob/main/LICENSE-MIT) at your option.

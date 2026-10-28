@@ -5,8 +5,11 @@ members = ["crates/protocol", "crates/server"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+authors = ["Marcus Eliasson <marcus@bitcraze.io>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/evoggy/crazyflie-connection-server"
+keywords = ["crazyflie", "crazyradio", "drone", "websocket"]
+categories = ["hardware-support", "network-programming"]
 
 [workspace.dependencies]
 crazyflie-connection-protocol = { path = "crates/protocol", version = "0.1.0" }
