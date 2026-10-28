@@ -15,3 +15,20 @@ change to the protocol or to how the server behaves towards clients.
 - `docs/protocol.md` is written by hand and no test checks it. Update it when
   clients would see a difference: attaching, streams, jobs, errors and
   timeouts, URIs, values.
+
+## Formatting
+
+The code is rustfmt-formatted and CI checks it: run `cargo fmt --all` before
+committing.
+
+## Releasing
+
+Both crates share the workspace version and are published together.
+
+1. Bump `version` in `[workspace.package]` and the `crazyflie-connection-protocol`
+   version in `[workspace.dependencies]` (root `Cargo.toml`), update
+   `Cargo.lock` (`cargo check`), commit as "Version X.Y.Z".
+2. Tag that commit on main with the bare version (`X.Y.Z`, no `v`) and push the tag.
+3. Run the "Publish to crates.io" workflow on the tag (Actions, Run workflow,
+   pick the tag). It checks the tag against the versions and publishes the
+   protocol crate first, through crates.io trusted publishing.
