@@ -1,7 +1,7 @@
 """Use a connection server from Python with nothing but a WebSocket.
 
     pip install websockets
-    cfcli server run          # or Swarmkeeper, which shares its connections
+    cargo run --release --example server   # or Swarmkeeper, which shares its connections
     python raw_client.py radio:///80/2M/E7E7E7E7E7 [ws://host:7777/]
 
 Attaches to the Crazyflie, reads a parameter and prints a few log samples.

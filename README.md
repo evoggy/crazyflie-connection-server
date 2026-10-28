@@ -27,7 +27,7 @@ The API is documented on [docs.rs](https://docs.rs/crazyflie-connection-server).
 ## Try it
 
 ```sh
-cfcli server run                                       # listens on 127.0.0.1:7777
+cargo run --release --example server                   # listens on 127.0.0.1:7777
 cargo run --example cf -- scan                         # auto: uses the server if it runs, else direct
 cargo run --example cf -- --name watcher watch-params radio:///80
 cargo run --example cf -- set radio:///80 led.bitmask 1     # the watcher sees it
@@ -48,9 +48,10 @@ The mode comes from `--connection` or `CRAZYFLIE_CONNECTION`:
 URIs are the usual `radio://` ones. `radio:///80/2M/E7E7E7E7E7` (no radio
 index) lets the server pick the radio.
 
-A standalone server is started with `cfcli server run`. For remote clients,
-start it with `--listen 0.0.0.0:7777`. There is no authentication yet; use it
-on a trusted network or over a tunnel.
+A standalone server is the `server` example. For remote clients, start it
+with `--listen 0.0.0.0:7777`. There is no authentication yet; use it on a
+trusted network or over a tunnel. Its source shows how to run a server in
+your own program.
 
 ## Other languages
 
@@ -87,8 +88,8 @@ can send every command.
 Connecting a swarm: Crazyflies on (nearly) the same channel share a
 Crazyradio, all of them connect at the same time, and a firmware's TOCs are
 downloaded from one Crazyflie while the others with that firmware wait for
-the cache. `FileTocCache` keeps the TOCs on disk across restarts (`cfcli
-server run --toc-cache DIR`). Whether a param is persistent is asked for when a client needs
+the cache. `FileTocCache` keeps the TOCs on disk across restarts (the
+`server` example's `--toc-cache DIR`). Whether a param is persistent is asked for when a client needs
 it, not while connecting.
 
 For tools with their own connection code, `Client::adopt` serves a Crazyflie

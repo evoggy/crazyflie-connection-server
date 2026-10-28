@@ -32,3 +32,7 @@ tokio-tungstenite = "0.27"
 [dev-dependencies]
 clap.workspace = true
 env_logger.workspace = true
+
+[[example]]
+name = "server"
+required-features = ["server"]
