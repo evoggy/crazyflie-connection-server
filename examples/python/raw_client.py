@@ -1,7 +1,7 @@
 """Use a connection server from Python with nothing but a WebSocket.
 
     pip install websockets
-    cargo run --release --example server   # or Swarmkeeper, which shares its connections
+    cargo run --release --example server   # in the repository, or run Swarmkeeper
     python raw_client.py radio:///80/2M/E7E7E7E7E7 [ws://host:7777/]
 
 Attaches to the Crazyflie, reads a parameter and prints a few log samples.
@@ -44,7 +44,13 @@ async def main(uri, server):
             message = json.loads(await ws.recv())
             if message["type"] == "event" and message["sub"] == 1:
                 print(message["event"])
+        await call("detach", uri=uri)
 
 
 if __name__ == "__main__":
-    asyncio.run(main(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else DEFAULT_SERVER))
+    if len(sys.argv) not in (2, 3):
+        sys.exit(f"usage: {sys.argv[0]} <uri> [server, default {DEFAULT_SERVER}]")
+    try:
+        asyncio.run(main(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else DEFAULT_SERVER))
+    except (OSError, RuntimeError) as e:
+        sys.exit(f"Error: {e}")

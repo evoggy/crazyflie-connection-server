@@ -26,6 +26,10 @@
 //! feature `server`, on by default), so the code above works without
 //! starting a server. Without the feature only the WebSocket modes are left,
 //! and crazyflie-lib, libusb and axum are not built.
+//!
+//! A server for other programs, on this machine or across the network, is a
+//! [Server] served with [serve_on]. The repository's `server` example is a
+//! standalone one: `cargo run --release --example server`.
 
 mod core;
 mod crazyflie;

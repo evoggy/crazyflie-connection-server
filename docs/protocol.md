@@ -14,7 +14,8 @@ Both are generated from `crates/protocol/src/lib.rs`.
 
 Start a server with `cargo run --release --example server` in this
 repository. It listens on `ws://127.0.0.1:7777/`. To take clients from other
-machines, start it with `-- --listen 0.0.0.0:7777`.
+machines, start it with `-- --listen 0.0.0.0:7777` (the
+[README](../README.md#run-a-server) has the other options).
 Swarmkeeper also serves on `127.0.0.1:7777` while it runs, and shares its
 connections.
 

@@ -111,7 +111,9 @@ impl<T: TocCache> TocStore for T {
     }
 }
 
-/// The server. Cheap to clone; all clones share the same radios and connections
+/// The server. Cheap to clone; all clones share the same radios and connections.
+/// Clients reach it in this process ([Client::in_process](crate::Client::in_process)) or over
+/// WebSocket ([serve], [serve_on]); `examples/server.rs` is a standalone server
 #[derive(Clone)]
 pub struct Server {
     inner: Arc<Inner>,
