@@ -70,6 +70,11 @@ pub enum Request {
     ScanSelected { uris: Vec<String> },
     /// List the Crazyflies the server is connected to
     List,
+    /// The server's Crazyradios, with the link statistics of every Crazyflie
+    /// connected on each, whichever clients are attached to it. Crazyflies a
+    /// program connected itself and handed to an in-process server (`adopt`)
+    /// are left out, since the server doesn't know their radio
+    Radios,
     /// Attach to a Crazyflie, connecting it if no other client has
     Attach { uri: String },
     /// Detach from a Crazyflie. It is disconnected a while (the server's
@@ -428,6 +433,10 @@ pub enum Response {
     /// The Crazyflies the server is connected to
     List {
         connected: Vec<CfInfo>,
+    },
+    /// The Crazyradios the server holds or has used, by index
+    Radios {
+        radios: Vec<RadioInfo>,
     },
     /// The Crazyflie attached to
     Attached(AttachInfo),
@@ -800,8 +809,9 @@ pub struct PersistentParamState {
     pub stored_value: Option<f64>,
 }
 
-/// Radio link statistics, see `crazyflie_lib::subsystems::link_service::Statistics`.
-/// Every field is `null` over USB, `rssi` also with a Crazyradio that doesn't measure it
+/// Radio link statistics over the last second, see
+/// `crazyflie_lib::subsystems::link_service::Statistics`. Every field is
+/// `null` over USB, `rssi` also with a Crazyradio that doesn't measure it
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct LinkStatistics {
@@ -819,6 +829,28 @@ pub struct LinkStatistics {
     pub power_detector_rate: Option<f32>,
     /// dBm, measured by the Crazyradio on acks
     pub rssi: Option<f32>,
+}
+
+/// One of the server's Crazyradios, see [Request::Radios]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+pub struct RadioInfo {
+    /// The index in `radio://<index>/…` URIs, and the `radio` of a [CfInfo]
+    pub index: usize,
+    /// The Crazyflies connected on it
+    pub links: Vec<RadioLink>,
+}
+
+/// A Crazyflie connected on one of the server's Crazyradios
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+pub struct RadioLink {
+    /// Normalized URI
+    pub uri: String,
+    /// Names of the clients attached to it, empty while it lingers
+    pub clients: Vec<String>,
+    /// How the link is doing
+    pub statistics: LinkStatistics,
 }
 
 /// A URI split into the key the server uses and the radio it pins, if any

@@ -35,6 +35,8 @@ enum Command {
     },
     /// List the Crazyflies the server is connected to, and their clients
     List,
+    /// The server's Crazyradios and the link statistics of the Crazyflies on each
+    Radios,
     /// Firmware and TOC sizes
     Info { uri: String },
     /// List parameters with their types and values
@@ -131,6 +133,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::List => {
             for cf in client.list().await? {
                 println!("{}{}", cf.uri, clients(&cf.clients));
+            }
+        }
+        Command::Radios => {
+            for radio in client.radios().await? {
+                println!("Radio {}", radio.index);
+                for link in radio.links {
+                    let s = link.statistics;
+                    println!(
+                        "  {}  {:.0} % acked, {:.0} packets/s sent, {:.0}/s received, {:.2} retries{}",
+                        link.uri,
+                        s.link_quality.unwrap_or(0.0) * 100.0,
+                        s.radio_send_rate.unwrap_or(0.0),
+                        s.downlink_rate.unwrap_or(0.0),
+                        s.avg_retries.unwrap_or(0.0),
+                        clients(&link.clients)
+                    );
+                }
             }
         }
         Command::Info { uri } => {

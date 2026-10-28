@@ -51,9 +51,9 @@ A request is `{"id": …, "call": "…", "args": {…}}`:
 
 - `id` is any unsigned 64-bit number the client picks. The server echoes it in
   the reply and doesn't look at it otherwise. Use a counter.
-- `args` is needed for every call except `list`, which takes none. Sending
-  `"args": {}` with `list` is an error. A call whose arguments are all
-  optional (`scan`) takes `"args": {}`.
+- `args` is needed for every call except `list` and `radios`, which take
+  none. Sending `"args": {}` with them is an error. A call whose arguments
+  are all optional (`scan`) takes `"args": {}`.
 - Optional arguments can be left out or `null`. The server ignores arguments
   it doesn't know.
 
@@ -180,4 +180,12 @@ same Crazyflie, and replies always use the normalized form
 
 The `hello` reply has the protocol version, now `1`. The protocol is still a
 prototype and can change; check the version, and ignore fields and message
-kinds you don't know so that additions don't break your client.
+kinds you don't know so that additions don't break your client. A server
+older than a call answers it with an `Invalid request: unknown variant …`
+error.
+
+Additions to protocol version 1, by the server release that brought them:
+
+| Release | Added |
+|---|---|
+| 0.2.0 | `radios`: every Crazyflie connected on each of the server's Crazyradios, with its link statistics |

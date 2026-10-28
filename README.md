@@ -55,6 +55,7 @@ cargo run --example cf -- scan                         # auto: uses the server i
 cargo run --example cf -- --name watcher watch-params radio:///80
 cargo run --example cf -- set radio:///80 led.bitmask 1     # the watcher sees it
 cargo run --example cf -- list                         # Crazyflies and their clients
+cargo run --example cf -- radios                       # the server's Crazyradios and their links
 cargo run --example cf -- --connection direct log radio:///80 pm.vbat
 ```
 
@@ -93,7 +94,8 @@ answer), list, attach, params (get/set/watch, persistent state/store/clear,
 shared cache), log subscriptions (spread over as many log blocks as they
 need), console, high-level commander (take-off, land, go-to, stop, define and
 start trajectories), roll/pitch/yaw-rate/thrust setpoints, arming, emergency
-stop, crash recovery, lighthouse sweep angles, link statistics, reboot and
+stop, crash recovery, lighthouse sweep angles, link statistics (of one
+Crazyflie, or of every link on each of the server's Crazyradios), reboot and
 power off/sleep/wake up, memories (the list, raw reads and writes, decks'
 1-wire memories, the EEPROM config, lighthouse geometries and calibrations,
 trajectories and Loco anchors, named as in crazyflie-lib), Loco Positioning

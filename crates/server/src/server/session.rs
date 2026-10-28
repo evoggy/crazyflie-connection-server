@@ -3,8 +3,8 @@
 use super::flash::{Image, Target};
 use super::{CfEntry, Server, memory, parse_address};
 use crazyflie_connection_protocol::{
-    ClientMessage, DEFAULT_ADDRESS, Event, LinkStatistics, PersistentParamState, Request, Response,
-    ServerMessage, normalize_uri,
+    ClientMessage, DEFAULT_ADDRESS, Event, PersistentParamState, Request, Response, ServerMessage,
+    normalize_uri,
 };
 use crazyflie_lib::Crazyflie;
 use crazyflie_lib::subsystems::log::{LogPeriod, LogStream};
@@ -193,6 +193,9 @@ async fn dispatch(
         }
         Request::List => Ok(Response::List {
             connected: server.list(),
+        }),
+        Request::Radios => Ok(Response::Radios {
+            radios: server.radio_infos().await,
         }),
         Request::Attach { uri } => {
             let uri = normalize_uri(&uri)?;
@@ -561,16 +564,7 @@ async fn dispatch(
         }
         Request::LinkStatistics { uri } => {
             let entry = attached(server, session, &uri)?;
-            let stats = entry.cf.link_service.get_statistics().await;
-            Ok(Response::LinkStatistics(LinkStatistics {
-                link_quality: stats.link_quality,
-                uplink_rate: stats.uplink_rate,
-                downlink_rate: stats.downlink_rate,
-                radio_send_rate: stats.radio_send_rate,
-                avg_retries: stats.avg_retries,
-                power_detector_rate: stats.power_detector_rate,
-                rssi: stats.rssi,
-            }))
+            Ok(Response::LinkStatistics(entry.link_statistics().await))
         }
     }
 }

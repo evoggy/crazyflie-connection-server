@@ -22,7 +22,8 @@ pub use toc::FileTocCache;
 pub use ws::{serve, serve_on};
 
 use crazyflie_connection_protocol::{
-    AttachInfo, CfInfo, Event, NormalizedUri, TocItem, normalize_uri,
+    AttachInfo, CfInfo, Event, LinkStatistics, NormalizedUri, RadioInfo, RadioLink, TocItem,
+    normalize_uri,
 };
 use crazyflie_lib::crazyflie_link::crazyradio::Crazyradio;
 use crazyflie_lib::crazyflie_link::{LinkContext, SharedCrazyradio};
@@ -305,6 +306,29 @@ impl Server {
         let mut list: Vec<CfInfo> = self.entries().iter().map(|entry| entry.cf_info()).collect();
         list.sort_by(|a, b| a.uri.cmp(&b.uri));
         list
+    }
+
+    /// The radios the server holds or has used, with the Crazyflies on each
+    pub(crate) async fn radio_infos(&self) -> Vec<RadioInfo> {
+        let mut radios: BTreeMap<usize, Vec<RadioLink>> = self
+            .radios()
+            .into_iter()
+            .map(|index| (index, Vec::new()))
+            .collect();
+        let mut entries = self.entries();
+        entries.sort_by(|a, b| a.key.cmp(&b.key));
+        for entry in entries {
+            let Some(slot) = entry.slot else { continue };
+            radios.entry(slot.radio).or_default().push(RadioLink {
+                uri: entry.key.clone(),
+                clients: entry.client_names(),
+                statistics: entry.link_statistics().await,
+            });
+        }
+        radios
+            .into_iter()
+            .map(|(index, links)| RadioInfo { index, links })
+            .collect()
     }
 
     /// Scan for Crazyflies at `address`. Results use normalized URIs
@@ -873,6 +897,19 @@ impl CfEntry {
             uri: self.key.clone(),
             clients: self.client_names(),
             radio: self.slot.map(|slot| slot.radio),
+        }
+    }
+
+    async fn link_statistics(&self) -> LinkStatistics {
+        let stats = self.cf.link_service.get_statistics().await;
+        LinkStatistics {
+            link_quality: stats.link_quality,
+            uplink_rate: stats.uplink_rate,
+            downlink_rate: stats.downlink_rate,
+            radio_send_rate: stats.radio_send_rate,
+            avg_retries: stats.avg_retries,
+            power_detector_rate: stats.power_detector_rate,
+            rssi: stats.rssi,
         }
     }
 }

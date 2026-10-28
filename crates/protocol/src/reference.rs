@@ -58,6 +58,15 @@ fn groups() -> Vec<Group> {
         clients: clients.iter().map(|&client| client.to_owned()).collect(),
         radio: Some(0),
     };
+    let link_statistics = LinkStatistics {
+        link_quality: Some(0.98),
+        uplink_rate: Some(12.0),
+        downlink_rate: Some(105.0),
+        radio_send_rate: Some(110.0),
+        avg_retries: Some(0.05),
+        power_detector_rate: Some(0.0),
+        rssi: Some(-48.0),
+    };
     let toc = |name: &str, value_type: &str, writable: bool| TocItem {
         name: name.to_owned(),
         value_type: value_type.to_owned(),
@@ -143,20 +152,41 @@ fn groups() -> Vec<Group> {
                     Response::Scan { found: vec![cf_info(URI, &["swarmkeeper"])] },
                 ),
                 call(Request::List, Response::List { connected: vec![cf_info(URI, &["swarmkeeper", "fly.py"])] }),
+                call(
+                    Request::Radios,
+                    Response::Radios {
+                        radios: vec![
+                            RadioInfo {
+                                index: 0,
+                                links: vec![
+                                    RadioLink {
+                                        uri: uri(),
+                                        clients: vec!["swarmkeeper".into(), "fly.py".into()],
+                                        statistics: link_statistics.clone(),
+                                    },
+                                    RadioLink {
+                                        // Lingering: only the empty packets that poll it
+                                        uri: URI2.into(),
+                                        clients: vec![],
+                                        statistics: LinkStatistics {
+                                            link_quality: Some(0.91),
+                                            uplink_rate: Some(0.0),
+                                            downlink_rate: Some(2.0),
+                                            radio_send_rate: Some(100.0),
+                                            avg_retries: Some(0.2),
+                                            rssi: Some(-61.0),
+                                            ..link_statistics.clone()
+                                        },
+                                    },
+                                ],
+                            },
+                            RadioInfo { index: 1, links: vec![] },
+                        ],
+                    },
+                ),
                 call(Request::Attach { uri: uri() }, Response::Attached(attach_info)),
                 call(Request::Detach { uri: uri() }, Response::Done),
-                call(
-                    Request::LinkStatistics { uri: uri() },
-                    Response::LinkStatistics(LinkStatistics {
-                        link_quality: Some(0.98),
-                        uplink_rate: Some(12.0),
-                        downlink_rate: Some(105.0),
-                        radio_send_rate: Some(110.0),
-                        avg_retries: Some(0.05),
-                        power_detector_rate: Some(0.0),
-                        rssi: Some(-48.0),
-                    }),
-                ),
+                call(Request::LinkStatistics { uri: uri() }, Response::LinkStatistics(link_statistics)),
             ],
         },
         Group {

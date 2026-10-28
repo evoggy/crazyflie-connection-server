@@ -43,8 +43,8 @@ pub use crate::crazyflie::{
     Platform, Supervisor,
 };
 pub use crazyflie_connection_protocol::{
-    CfInfo, DEFAULT_PORT, FlashStart, LinkStatistics, NormalizedUri, PersistentParamState, TocItem,
-    normalize_uri,
+    CfInfo, DEFAULT_PORT, FlashStart, LinkStatistics, NormalizedUri, PersistentParamState,
+    RadioInfo, RadioLink, TocItem, normalize_uri,
 };
 
 #[cfg(feature = "server")]
@@ -358,6 +358,16 @@ impl Client {
     pub async fn list(&self) -> Result<Vec<CfInfo>> {
         match self.core.call(Request::List).await? {
             Response::List { connected } => Ok(connected),
+            _ => Err(Error::UnexpectedReply),
+        }
+    }
+
+    /// The server's Crazyradios, with the link statistics of every Crazyflie
+    /// connected on each, also those other programs are attached to. The
+    /// Crazyflies handed to the server with `adopt` are left out
+    pub async fn radios(&self) -> Result<Vec<RadioInfo>> {
+        match self.core.call(Request::Radios).await? {
+            Response::Radios { radios } => Ok(radios),
             _ => Err(Error::UnexpectedReply),
         }
     }

@@ -8,16 +8,16 @@ Types: `u8` to `u64` are unsigned integers of that many bits, `T[]` is an array 
 
 | | |
 |---|---|
-| [Clients and Crazyflies](#clients-and-crazyflies) | [`hello`](#hello), [`scan`](#scan), [`scan_selected`](#scan_selected), [`list`](#list), [`attach`](#attach), [`detach`](#detach), [`link_statistics`](#link_statistics) |
+| [Clients and Crazyflies](#clients-and-crazyflies) | [`hello`](#hello), [`scan`](#scan), [`scan_selected`](#scan_selected), [`list`](#list), [`radios`](#radios), [`attach`](#attach), [`detach`](#detach), [`link_statistics`](#link_statistics) |
 | [Params](#params) | [`param_get`](#param_get), [`param_set`](#param_set), [`param_watch`](#param_watch), [`param_is_persistent`](#param_is_persistent), [`param_persistent_state`](#param_persistent_state), [`param_persistent_store`](#param_persistent_store), [`param_persistent_clear`](#param_persistent_clear) |
 | [Streams](#streams) | [`log_subscribe`](#log_subscribe), [`console_subscribe`](#console_subscribe), [`lighthouse_angle_subscribe`](#lighthouse_angle_subscribe), [`unsubscribe`](#unsubscribe) |
 | [Flying](#flying) | [`take_off`](#take_off), [`land`](#land), [`stop`](#stop), [`go_to`](#go_to), [`define_trajectory`](#define_trajectory), [`start_trajectory`](#start_trajectory), [`setpoint_rpyt`](#setpoint_rpyt), [`notify_setpoint_stop`](#notify_setpoint_stop), [`arming_request`](#arming_request), [`emergency_stop`](#emergency_stop), [`crash_recovery`](#crash_recovery) |
 | [Memories](#memories) | [`memory_read`](#memory_read), [`memory_write`](#memory_write), [`one_wire_read`](#one_wire_read), [`eeprom_config_read`](#eeprom_config_read), [`eeprom_config_write`](#eeprom_config_write), [`lighthouse_geometry_read`](#lighthouse_geometry_read), [`lighthouse_geometry_write`](#lighthouse_geometry_write), [`lighthouse_calibration_read`](#lighthouse_calibration_read), [`lighthouse_calibration_write`](#lighthouse_calibration_write), [`trajectory_write_uncompressed`](#trajectory_write_uncompressed), [`trajectory_write_compressed`](#trajectory_write_compressed), [`loco_read_id_list`](#loco_read_id_list), [`loco_read_anchor`](#loco_read_anchor) |
 | [Positioning](#positioning) | [`send_short_lpp_packet`](#send_short_lpp_packet), [`lighthouse_persist`](#lighthouse_persist) |
 | [Jobs and power](#jobs-and-power) | [`flash`](#flash), [`watch`](#watch), [`platform`](#platform) |
-| [Replies](#replies) | [`done`](#done-reply), [`hello`](#hello-reply), [`scan`](#scan-reply), [`list`](#list-reply), [`attached`](#attached-reply), [`value`](#value-reply), [`persistent_state`](#persistent_state-reply), [`link_statistics`](#link_statistics-reply), [`data`](#data-reply), [`bool`](#bool-reply), [`one_wire`](#one_wire-reply), [`eeprom_config`](#eeprom_config-reply), [`lighthouse_geometry`](#lighthouse_geometry-reply), [`lighthouse_calibration`](#lighthouse_calibration-reply), [`written`](#written-reply), [`ids`](#ids-reply), [`loco_anchor`](#loco_anchor-reply) |
+| [Replies](#replies) | [`done`](#done-reply), [`hello`](#hello-reply), [`scan`](#scan-reply), [`list`](#list-reply), [`radios`](#radios-reply), [`attached`](#attached-reply), [`value`](#value-reply), [`persistent_state`](#persistent_state-reply), [`link_statistics`](#link_statistics-reply), [`data`](#data-reply), [`bool`](#bool-reply), [`one_wire`](#one_wire-reply), [`eeprom_config`](#eeprom_config-reply), [`lighthouse_geometry`](#lighthouse_geometry-reply), [`lighthouse_calibration`](#lighthouse_calibration-reply), [`written`](#written-reply), [`ids`](#ids-reply), [`loco_anchor`](#loco_anchor-reply) |
 | [Events](#events) | [`param_changed`](#param_changed-event), [`log`](#log-event), [`console`](#console-event), [`lighthouse_angles`](#lighthouse_angles-event), [`progress`](#progress-event), [`flashed`](#flashed-event), [`flash_failed`](#flash_failed-event), [`done`](#done-event), [`busy`](#busy-event), [`available`](#available-event), [`ended`](#ended-event) |
-| [Types](#types) | [`AttachInfo`](#attachinfo), [`CfInfo`](#cfinfo), [`CompressedSegment`](#compressedsegment), [`CompressedStart`](#compressedstart), [`EepromConfig`](#eepromconfig), [`FlashImage`](#flashimage), [`FlashStart`](#flashstart), [`LighthouseBsCalibration`](#lighthousebscalibration), [`LighthouseBsGeometry`](#lighthousebsgeometry), [`LighthouseCalibrationSweep`](#lighthousecalibrationsweep), [`LinkStatistics`](#linkstatistics), [`LocoAnchorData`](#locoanchordata), [`MemoryInfo`](#memoryinfo), [`MemoryType`](#memorytype), [`OneWireMemory`](#onewirememory), [`PersistentParamState`](#persistentparamstate), [`PlatformCommand`](#platformcommand), [`Poly`](#poly), [`Poly4D`](#poly4d), [`TocItem`](#tocitem) |
+| [Types](#types) | [`AttachInfo`](#attachinfo), [`CfInfo`](#cfinfo), [`CompressedSegment`](#compressedsegment), [`CompressedStart`](#compressedstart), [`EepromConfig`](#eepromconfig), [`FlashImage`](#flashimage), [`FlashStart`](#flashstart), [`LighthouseBsCalibration`](#lighthousebscalibration), [`LighthouseBsGeometry`](#lighthousebsgeometry), [`LighthouseCalibrationSweep`](#lighthousecalibrationsweep), [`LinkStatistics`](#linkstatistics), [`LocoAnchorData`](#locoanchordata), [`MemoryInfo`](#memoryinfo), [`MemoryType`](#memorytype), [`OneWireMemory`](#onewirememory), [`PersistentParamState`](#persistentparamstate), [`PlatformCommand`](#platformcommand), [`Poly`](#poly), [`Poly4D`](#poly4d), [`RadioInfo`](#radioinfo), [`RadioLink`](#radiolink), [`TocItem`](#tocitem) |
 
 ## Messages
 
@@ -121,6 +121,19 @@ Reply: [`list`](#list-reply)
 ← {"type":"reply","id":4,"ok":{"kind":"list","connected":[{"uri":"radio:///80/2M/E7E7E7E7E7","clients":["swarmkeeper","fly.py"],"radio":0}]}}
 ```
 
+### `radios`
+
+The server's Crazyradios, with the link statistics of every Crazyflie connected on each, whichever clients are attached to it. Crazyflies a program connected itself and handed to an in-process server (`adopt`) are left out, since the server doesn't know their radio.
+
+No arguments.
+
+Reply: [`radios`](#radios-reply)
+
+```text
+→ {"id":5,"call":"radios"}
+← {"type":"reply","id":5,"ok":{"kind":"radios","radios":[{"index":0,"links":[{"uri":"radio:///80/2M/E7E7E7E7E7","clients":["swarmkeeper","fly.py"],"statistics":{"link_quality":0.98,"uplink_rate":12.0,"downlink_rate":105.0,"radio_send_rate":110.0,"avg_retries":0.05,"power_detector_rate":0.0,"rssi":-48.0}},{"uri":"radio:///80/2M/E7E7E7E701","clients":[],"statistics":{"link_quality":0.91,"uplink_rate":0.0,"downlink_rate":2.0,"radio_send_rate":100.0,"avg_retries":0.2,"power_detector_rate":0.0,"rssi":-61.0}}]},{"index":1,"links":[]}]}}
+```
+
 ### `attach`
 
 Attach to a Crazyflie, connecting it if no other client has.
@@ -132,8 +145,8 @@ Attach to a Crazyflie, connecting it if no other client has.
 Reply: [`attached`](#attached-reply)
 
 ```text
-→ {"id":5,"call":"attach","args":{"uri":"radio:///80/2M/E7E7E7E7E7"}}
-← {"type":"reply","id":5,"ok":{"kind":"attached","uri":"radio:///80/2M/E7E7E7E7E7","firmware_version":"2025.09","device_type":"Crazyflie 2.1","protocol_version":10,"params":[{"name":"led.bitmask","type":"u8","writable":true},{"name":"pm.lowVoltage","type":"f32","writable":true}],"log_vars":[{"name":"pm.vbat","type":"f32","writable":true}],"memories":[{"id":0,"type":"eeprom_config","size":21},{"id":1,"type":"one_wire","size":112,"serial":"F1A2C3D4E5F60718"}]}}
+→ {"id":6,"call":"attach","args":{"uri":"radio:///80/2M/E7E7E7E7E7"}}
+← {"type":"reply","id":6,"ok":{"kind":"attached","uri":"radio:///80/2M/E7E7E7E7E7","firmware_version":"2025.09","device_type":"Crazyflie 2.1","protocol_version":10,"params":[{"name":"led.bitmask","type":"u8","writable":true},{"name":"pm.lowVoltage","type":"f32","writable":true}],"log_vars":[{"name":"pm.vbat","type":"f32","writable":true}],"memories":[{"id":0,"type":"eeprom_config","size":21},{"id":1,"type":"one_wire","size":112,"serial":"F1A2C3D4E5F60718"}]}}
 ```
 
 ### `detach`
@@ -147,8 +160,8 @@ Detach from a Crazyflie. It is disconnected a while (the server's linger time) a
 Reply: [`done`](#done-reply)
 
 ```text
-→ {"id":6,"call":"detach","args":{"uri":"radio:///80/2M/E7E7E7E7E7"}}
-← {"type":"reply","id":6,"ok":{"kind":"done"}}
+→ {"id":7,"call":"detach","args":{"uri":"radio:///80/2M/E7E7E7E7E7"}}
+← {"type":"reply","id":7,"ok":{"kind":"done"}}
 ```
 
 ### `link_statistics`
@@ -162,8 +175,8 @@ The radio link's statistics.
 Reply: [`link_statistics`](#link_statistics-reply)
 
 ```text
-→ {"id":7,"call":"link_statistics","args":{"uri":"radio:///80/2M/E7E7E7E7E7"}}
-← {"type":"reply","id":7,"ok":{"kind":"link_statistics","link_quality":0.98,"uplink_rate":12.0,"downlink_rate":105.0,"radio_send_rate":110.0,"avg_retries":0.05,"power_detector_rate":0.0,"rssi":-48.0}}
+→ {"id":8,"call":"link_statistics","args":{"uri":"radio:///80/2M/E7E7E7E7E7"}}
+← {"type":"reply","id":8,"ok":{"kind":"link_statistics","link_quality":0.98,"uplink_rate":12.0,"downlink_rate":105.0,"radio_send_rate":110.0,"avg_retries":0.05,"power_detector_rate":0.0,"rssi":-48.0}}
 ```
 
 ## Params
@@ -182,8 +195,8 @@ Read a param from the Crazyflie.
 Reply: [`value`](#value-reply)
 
 ```text
-→ {"id":8,"call":"param_get","args":{"uri":"radio:///80/2M/E7E7E7E7E7","name":"pm.lowVoltage"}}
-← {"type":"reply","id":8,"ok":{"kind":"value","value":3.2}}
+→ {"id":9,"call":"param_get","args":{"uri":"radio:///80/2M/E7E7E7E7E7","name":"pm.lowVoltage"}}
+← {"type":"reply","id":9,"ok":{"kind":"value","value":3.2}}
 ```
 
 ### `param_set`
@@ -199,8 +212,8 @@ Set a param. Every value is a number, converted to the param's type.
 Reply: [`done`](#done-reply)
 
 ```text
-→ {"id":9,"call":"param_set","args":{"uri":"radio:///80/2M/E7E7E7E7E7","name":"led.bitmask","value":3.0}}
-← {"type":"reply","id":9,"ok":{"kind":"done"}}
+→ {"id":10,"call":"param_set","args":{"uri":"radio:///80/2M/E7E7E7E7E7","name":"led.bitmask","value":3.0}}
+← {"type":"reply","id":10,"ok":{"kind":"done"}}
 ```
 
 ### `param_watch`
@@ -217,8 +230,8 @@ Reply: [`done`](#done-reply)
 Events on `sub`: [`param_changed`](#param_changed-event), [`ended`](#ended-event)
 
 ```text
-→ {"id":10,"call":"param_watch","args":{"uri":"radio:///80/2M/E7E7E7E7E7","sub":1}}
-← {"type":"reply","id":10,"ok":{"kind":"done"}}
+→ {"id":11,"call":"param_watch","args":{"uri":"radio:///80/2M/E7E7E7E7E7","sub":1}}
+← {"type":"reply","id":11,"ok":{"kind":"done"}}
 ← {"type":"event","sub":1,"event":{"kind":"param_changed","name":"led.bitmask","value":3.0}}
 ```
 
@@ -234,8 +247,8 @@ Whether a param can be stored in the EEPROM. Replies [`bool` reply](#bool-reply)
 Reply: [`bool`](#bool-reply)
 
 ```text
-→ {"id":11,"call":"param_is_persistent","args":{"uri":"radio:///80/2M/E7E7E7E7E7","name":"ring.effect"}}
-← {"type":"reply","id":11,"ok":{"kind":"bool","value":true}}
+→ {"id":12,"call":"param_is_persistent","args":{"uri":"radio:///80/2M/E7E7E7E7E7","name":"ring.effect"}}
+← {"type":"reply","id":12,"ok":{"kind":"bool","value":true}}
 ```
 
 ### `param_persistent_state`
@@ -250,8 +263,8 @@ Default and stored value of a persistent param.
 Reply: [`persistent_state`](#persistent_state-reply)
 
 ```text
-→ {"id":12,"call":"param_persistent_state","args":{"uri":"radio:///80/2M/E7E7E7E7E7","name":"ring.effect"}}
-← {"type":"reply","id":12,"ok":{"kind":"persistent_state","is_stored":true,"default_value":6.0,"stored_value":7.0}}
+→ {"id":13,"call":"param_persistent_state","args":{"uri":"radio:///80/2M/E7E7E7E7E7","name":"ring.effect"}}
+← {"type":"reply","id":13,"ok":{"kind":"persistent_state","is_stored":true,"default_value":6.0,"stored_value":7.0}}
 ```
 
 ### `param_persistent_store`
@@ -266,8 +279,8 @@ Store the current value of a persistent param in the Crazyflie's EEPROM.
 Reply: [`done`](#done-reply)
 
 ```text
-→ {"id":13,"call":"param_persistent_store","args":{"uri":"radio:///80/2M/E7E7E7E7E7","name":"ring.effect"}}
-← {"type":"reply","id":13,"ok":{"kind":"done"}}
+→ {"id":14,"call":"param_persistent_store","args":{"uri":"radio:///80/2M/E7E7E7E7E7","name":"ring.effect"}}
+← {"type":"reply","id":14,"ok":{"kind":"done"}}
 ```
 
 ### `param_persistent_clear`
@@ -282,8 +295,8 @@ Clear the stored value of a persistent param.
 Reply: [`done`](#done-reply)
 
 ```text
-→ {"id":14,"call":"param_persistent_clear","args":{"uri":"radio:///80/2M/E7E7E7E7E7","name":"ring.effect"}}
-← {"type":"reply","id":14,"ok":{"kind":"done"}}
+→ {"id":15,"call":"param_persistent_clear","args":{"uri":"radio:///80/2M/E7E7E7E7E7","name":"ring.effect"}}
+← {"type":"reply","id":15,"ok":{"kind":"done"}}
 ```
 
 ## Streams
@@ -306,8 +319,8 @@ Reply: [`done`](#done-reply)
 Events on `sub`: [`log`](#log-event), [`ended`](#ended-event)
 
 ```text
-→ {"id":15,"call":"log_subscribe","args":{"uri":"radio:///80/2M/E7E7E7E7E7","sub":2,"vars":["pm.vbat","stateEstimate.z"],"period_ms":100}}
-← {"type":"reply","id":15,"ok":{"kind":"done"}}
+→ {"id":16,"call":"log_subscribe","args":{"uri":"radio:///80/2M/E7E7E7E7E7","sub":2,"vars":["pm.vbat","stateEstimate.z"],"period_ms":100}}
+← {"type":"reply","id":16,"ok":{"kind":"done"}}
 ← {"type":"event","sub":2,"event":{"kind":"log","timestamp":123400,"values":{"pm.vbat":3.92,"stateEstimate.z":0.51}}}
 ← {"type":"event","sub":2,"event":{"kind":"log","timestamp":123500,"values":{"pm.vbat":3.91,"stateEstimate.z":0.5}}}
 ← {"type":"event","sub":2,"event":{"kind":"ended","reason":"Crazyflie disconnected"}}
@@ -328,8 +341,8 @@ Reply: [`done`](#done-reply)
 Events on `sub`: [`console`](#console-event), [`ended`](#ended-event)
 
 ```text
-→ {"id":16,"call":"console_subscribe","args":{"uri":"radio:///80/2M/E7E7E7E7E7","sub":3,"history":true}}
-← {"type":"reply","id":16,"ok":{"kind":"done"}}
+→ {"id":17,"call":"console_subscribe","args":{"uri":"radio:///80/2M/E7E7E7E7E7","sub":3,"history":true}}
+← {"type":"reply","id":17,"ok":{"kind":"done"}}
 ← {"type":"event","sub":3,"event":{"kind":"console","line":"SYS: Crazyflie 2.1 is up and running!"}}
 ```
 
@@ -347,8 +360,8 @@ Reply: [`done`](#done-reply)
 Events on `sub`: [`lighthouse_angles`](#lighthouse_angles-event), [`ended`](#ended-event)
 
 ```text
-→ {"id":17,"call":"lighthouse_angle_subscribe","args":{"uri":"radio:///80/2M/E7E7E7E7E7","sub":4}}
-← {"type":"reply","id":17,"ok":{"kind":"done"}}
+→ {"id":18,"call":"lighthouse_angle_subscribe","args":{"uri":"radio:///80/2M/E7E7E7E7E7","sub":4}}
+← {"type":"reply","id":18,"ok":{"kind":"done"}}
 ← {"type":"event","sub":4,"event":{"kind":"lighthouse_angles","base_station":0,"x":[-0.312,-0.309,-0.317,-0.315],"y":[0.127,0.131,0.129,0.133]}}
 ```
 
@@ -363,8 +376,8 @@ Stop a stream opened with `sub`.
 Reply: [`done`](#done-reply)
 
 ```text
-→ {"id":18,"call":"unsubscribe","args":{"sub":2}}
-← {"type":"reply","id":18,"ok":{"kind":"done"}}
+→ {"id":19,"call":"unsubscribe","args":{"sub":2}}
+← {"type":"reply","id":19,"ok":{"kind":"done"}}
 ```
 
 ## Flying
@@ -386,8 +399,8 @@ Take off from the current position. The reply comes when the command is sent, no
 Reply: [`done`](#done-reply)
 
 ```text
-→ {"id":19,"call":"take_off","args":{"uri":"radio:///80/2M/E7E7E7E7E7","height":0.5,"yaw":null,"duration":2.0,"group_mask":null}}
-← {"type":"reply","id":19,"ok":{"kind":"done"}}
+→ {"id":20,"call":"take_off","args":{"uri":"radio:///80/2M/E7E7E7E7E7","height":0.5,"yaw":null,"duration":2.0,"group_mask":null}}
+← {"type":"reply","id":20,"ok":{"kind":"done"}}
 ```
 
 ### `land`
@@ -405,8 +418,8 @@ Land at the current position.
 Reply: [`done`](#done-reply)
 
 ```text
-→ {"id":20,"call":"land","args":{"uri":"radio:///80/2M/E7E7E7E7E7","height":0.0,"yaw":null,"duration":2.0,"group_mask":null}}
-← {"type":"reply","id":20,"ok":{"kind":"done"}}
+→ {"id":21,"call":"land","args":{"uri":"radio:///80/2M/E7E7E7E7E7","height":0.0,"yaw":null,"duration":2.0,"group_mask":null}}
+← {"type":"reply","id":21,"ok":{"kind":"done"}}
 ```
 
 ### `stop`
@@ -421,8 +434,8 @@ Stop the high-level command and the motors.
 Reply: [`done`](#done-reply)
 
 ```text
-→ {"id":21,"call":"stop","args":{"uri":"radio:///80/2M/E7E7E7E7E7","group_mask":null}}
-← {"type":"reply","id":21,"ok":{"kind":"done"}}
+→ {"id":22,"call":"stop","args":{"uri":"radio:///80/2M/E7E7E7E7E7","group_mask":null}}
+← {"type":"reply","id":22,"ok":{"kind":"done"}}
 ```
 
 ### `go_to`
@@ -444,8 +457,8 @@ Fly to a position.
 Reply: [`done`](#done-reply)
 
 ```text
-→ {"id":22,"call":"go_to","args":{"uri":"radio:///80/2M/E7E7E7E7E7","x":1.0,"y":0.0,"z":0.5,"yaw":0.0,"duration":3.0,"relative":false,"linear":false,"group_mask":null}}
-← {"type":"reply","id":22,"ok":{"kind":"done"}}
+→ {"id":23,"call":"go_to","args":{"uri":"radio:///80/2M/E7E7E7E7E7","x":1.0,"y":0.0,"z":0.5,"yaw":0.0,"duration":3.0,"relative":false,"linear":false,"group_mask":null}}
+← {"type":"reply","id":23,"ok":{"kind":"done"}}
 ```
 
 ### `define_trajectory`
@@ -463,8 +476,8 @@ Define trajectory `id` as `num_pieces` pieces at `memory_offset` in the trajecto
 Reply: [`done`](#done-reply)
 
 ```text
-→ {"id":23,"call":"define_trajectory","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":1,"memory_offset":0,"num_pieces":1,"trajectory_type":null}}
-← {"type":"reply","id":23,"ok":{"kind":"done"}}
+→ {"id":24,"call":"define_trajectory","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":1,"memory_offset":0,"num_pieces":1,"trajectory_type":null}}
+← {"type":"reply","id":24,"ok":{"kind":"done"}}
 ```
 
 ### `start_trajectory`
@@ -484,8 +497,8 @@ Fly trajectory `id`.
 Reply: [`done`](#done-reply)
 
 ```text
-→ {"id":24,"call":"start_trajectory","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":1,"time_scale":1.0,"relative_position":true,"relative_yaw":false,"reversed":false,"group_mask":null}}
-← {"type":"reply","id":24,"ok":{"kind":"done"}}
+→ {"id":25,"call":"start_trajectory","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":1,"time_scale":1.0,"relative_position":true,"relative_yaw":false,"reversed":false,"group_mask":null}}
+← {"type":"reply","id":25,"ok":{"kind":"done"}}
 ```
 
 ### `setpoint_rpyt`
@@ -503,8 +516,8 @@ Low-level setpoint, sent repeatedly. The thrust is locked until a setpoint with 
 Reply: [`done`](#done-reply)
 
 ```text
-→ {"id":25,"call":"setpoint_rpyt","args":{"uri":"radio:///80/2M/E7E7E7E7E7","roll":0.0,"pitch":0.0,"yawrate":0.0,"thrust":0}}
-← {"type":"reply","id":25,"ok":{"kind":"done"}}
+→ {"id":26,"call":"setpoint_rpyt","args":{"uri":"radio:///80/2M/E7E7E7E7E7","roll":0.0,"pitch":0.0,"yawrate":0.0,"thrust":0}}
+← {"type":"reply","id":26,"ok":{"kind":"done"}}
 ```
 
 ### `notify_setpoint_stop`
@@ -519,8 +532,8 @@ End the low-level setpoints, so that the high-level commander takes over.
 Reply: [`done`](#done-reply)
 
 ```text
-→ {"id":26,"call":"notify_setpoint_stop","args":{"uri":"radio:///80/2M/E7E7E7E7E7","remain_valid_ms":0}}
-← {"type":"reply","id":26,"ok":{"kind":"done"}}
+→ {"id":27,"call":"notify_setpoint_stop","args":{"uri":"radio:///80/2M/E7E7E7E7E7","remain_valid_ms":0}}
+← {"type":"reply","id":27,"ok":{"kind":"done"}}
 ```
 
 ### `arming_request`
@@ -535,8 +548,8 @@ Arm or disarm the motors.
 Reply: [`done`](#done-reply)
 
 ```text
-→ {"id":27,"call":"arming_request","args":{"uri":"radio:///80/2M/E7E7E7E7E7","arm":true}}
-← {"type":"reply","id":27,"ok":{"kind":"done"}}
+→ {"id":28,"call":"arming_request","args":{"uri":"radio:///80/2M/E7E7E7E7E7","arm":true}}
+← {"type":"reply","id":28,"ok":{"kind":"done"}}
 ```
 
 ### `emergency_stop`
@@ -550,8 +563,8 @@ Stop the motors at once. The Crazyflie has to be restarted to fly again.
 Reply: [`done`](#done-reply)
 
 ```text
-→ {"id":28,"call":"emergency_stop","args":{"uri":"radio:///80/2M/E7E7E7E7E7"}}
-← {"type":"reply","id":28,"ok":{"kind":"done"}}
+→ {"id":29,"call":"emergency_stop","args":{"uri":"radio:///80/2M/E7E7E7E7E7"}}
+← {"type":"reply","id":29,"ok":{"kind":"done"}}
 ```
 
 ### `crash_recovery`
@@ -565,8 +578,8 @@ Recover a Crazyflie that crashed (tumbled).
 Reply: [`done`](#done-reply)
 
 ```text
-→ {"id":29,"call":"crash_recovery","args":{"uri":"radio:///80/2M/E7E7E7E7E7"}}
-← {"type":"reply","id":29,"ok":{"kind":"done"}}
+→ {"id":30,"call":"crash_recovery","args":{"uri":"radio:///80/2M/E7E7E7E7E7"}}
+← {"type":"reply","id":30,"ok":{"kind":"done"}}
 ```
 
 ## Memories
@@ -587,8 +600,8 @@ Read `length` bytes of memory `id` (see [`memories`](#attachinfo)) from `address
 Reply: [`data`](#data-reply)
 
 ```text
-→ {"id":30,"call":"memory_read","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":1,"address":0,"length":4}}
-← {"type":"reply","id":30,"ok":{"kind":"data","data":"6wAAAA=="}}
+→ {"id":31,"call":"memory_read","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":1,"address":0,"length":4}}
+← {"type":"reply","id":31,"ok":{"kind":"data","data":"6wAAAA=="}}
 ```
 
 ### `memory_write`
@@ -605,8 +618,8 @@ Write `data` to memory `id` at `address`.
 Reply: [`done`](#done-reply)
 
 ```text
-→ {"id":31,"call":"memory_write","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":1,"address":0,"data":"AQID"}}
-← {"type":"reply","id":31,"ok":{"kind":"done"}}
+→ {"id":32,"call":"memory_write","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":1,"address":0,"data":"AQID"}}
+← {"type":"reply","id":32,"ok":{"kind":"done"}}
 ```
 
 ### `one_wire_read`
@@ -621,8 +634,8 @@ Read a deck's 1-wire memory `id`: its ids and elements (board name, revision, �
 Reply: [`one_wire`](#one_wire-reply)
 
 ```text
-→ {"id":32,"call":"one_wire_read","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":1}}
-← {"type":"reply","id":32,"ok":{"kind":"one_wire","used_pins":12,"vid":188,"pid":16,"elements":{"boardName":"bcLighthouse4","revision":"C"}}}
+→ {"id":33,"call":"one_wire_read","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":1}}
+← {"type":"reply","id":33,"ok":{"kind":"one_wire","used_pins":12,"vid":188,"pid":16,"elements":{"boardName":"bcLighthouse4","revision":"C"}}}
 ```
 
 ### `eeprom_config_read`
@@ -637,8 +650,8 @@ Read the EEPROM config memory `id`.
 Reply: [`eeprom_config`](#eeprom_config-reply)
 
 ```text
-→ {"id":33,"call":"eeprom_config_read","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":0}}
-← {"type":"reply","id":33,"ok":{"kind":"eeprom_config","radio_channel":80,"radio_speed":2,"radio_address":"E7E7E7E7E7","pitch_trim":0.0,"roll_trim":0.0}}
+→ {"id":34,"call":"eeprom_config_read","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":0}}
+← {"type":"reply","id":34,"ok":{"kind":"eeprom_config","radio_channel":80,"radio_speed":2,"radio_address":"E7E7E7E7E7","pitch_trim":0.0,"roll_trim":0.0}}
 ```
 
 ### `eeprom_config_write`
@@ -654,8 +667,8 @@ Write the EEPROM config memory `id`. The firmware applies it at boot.
 Reply: [`done`](#done-reply)
 
 ```text
-→ {"id":34,"call":"eeprom_config_write","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":0,"config":{"radio_channel":90,"radio_speed":2,"radio_address":"E7E7E7E7E7","pitch_trim":0.0,"roll_trim":0.0}}}
-← {"type":"reply","id":34,"ok":{"kind":"done"}}
+→ {"id":35,"call":"eeprom_config_write","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":0,"config":{"radio_channel":90,"radio_speed":2,"radio_address":"E7E7E7E7E7","pitch_trim":0.0,"roll_trim":0.0}}}
+← {"type":"reply","id":35,"ok":{"kind":"done"}}
 ```
 
 ### `lighthouse_geometry_read`
@@ -671,8 +684,8 @@ Read the geometry of base station `bs` from lighthouse memory `id`.
 Reply: [`lighthouse_geometry`](#lighthouse_geometry-reply)
 
 ```text
-→ {"id":35,"call":"lighthouse_geometry_read","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":2,"bs":0}}
-← {"type":"reply","id":35,"ok":{"kind":"lighthouse_geometry","origin":[-1.92,2.13,2.51],"rotation_matrix":[[0.68,-0.48,0.55],[0.47,0.87,0.16],[-0.56,0.13,0.82]],"valid":true}}
+→ {"id":36,"call":"lighthouse_geometry_read","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":2,"bs":0}}
+← {"type":"reply","id":36,"ok":{"kind":"lighthouse_geometry","origin":[-1.92,2.13,2.51],"rotation_matrix":[[0.68,-0.48,0.55],[0.47,0.87,0.16],[-0.56,0.13,0.82]],"valid":true}}
 ```
 
 ### `lighthouse_geometry_write`
@@ -689,8 +702,8 @@ Write the geometry of base station `bs` to lighthouse memory `id`. The Crazyflie
 Reply: [`done`](#done-reply)
 
 ```text
-→ {"id":36,"call":"lighthouse_geometry_write","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":2,"bs":0,"geometry":{"origin":[-1.92,2.13,2.51],"rotation_matrix":[[0.68,-0.48,0.55],[0.47,0.87,0.16],[-0.56,0.13,0.82]],"valid":true}}}
-← {"type":"reply","id":36,"ok":{"kind":"done"}}
+→ {"id":37,"call":"lighthouse_geometry_write","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":2,"bs":0,"geometry":{"origin":[-1.92,2.13,2.51],"rotation_matrix":[[0.68,-0.48,0.55],[0.47,0.87,0.16],[-0.56,0.13,0.82]],"valid":true}}}
+← {"type":"reply","id":37,"ok":{"kind":"done"}}
 ```
 
 ### `lighthouse_calibration_read`
@@ -706,8 +719,8 @@ Read the calibration of base station `bs` from lighthouse memory `id`.
 Reply: [`lighthouse_calibration`](#lighthouse_calibration-reply)
 
 ```text
-→ {"id":37,"call":"lighthouse_calibration_read","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":2,"bs":0}}
-← {"type":"reply","id":37,"ok":{"kind":"lighthouse_calibration","sweeps":[{"phase":0.0,"tilt":-0.047,"curve":0.21,"gibmag":-0.006,"gibphase":1.14,"ogeemag":-0.12,"ogeephase":0.82},{"phase":0.0,"tilt":0.046,"curve":0.21,"gibmag":-0.006,"gibphase":1.14,"ogeemag":-0.12,"ogeephase":0.82}],"uid":450938338,"valid":true}}
+→ {"id":38,"call":"lighthouse_calibration_read","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":2,"bs":0}}
+← {"type":"reply","id":38,"ok":{"kind":"lighthouse_calibration","sweeps":[{"phase":0.0,"tilt":-0.047,"curve":0.21,"gibmag":-0.006,"gibphase":1.14,"ogeemag":-0.12,"ogeephase":0.82},{"phase":0.0,"tilt":0.046,"curve":0.21,"gibmag":-0.006,"gibphase":1.14,"ogeemag":-0.12,"ogeephase":0.82}],"uid":450938338,"valid":true}}
 ```
 
 ### `lighthouse_calibration_write`
@@ -724,8 +737,8 @@ Write the calibration of base station `bs` to lighthouse memory `id`. The Crazyf
 Reply: [`done`](#done-reply)
 
 ```text
-→ {"id":38,"call":"lighthouse_calibration_write","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":2,"bs":0,"calibration":{"sweeps":[{"phase":0.0,"tilt":-0.047,"curve":0.21,"gibmag":-0.006,"gibphase":1.14,"ogeemag":-0.12,"ogeephase":0.82},{"phase":0.0,"tilt":0.046,"curve":0.21,"gibmag":-0.006,"gibphase":1.14,"ogeemag":-0.12,"ogeephase":0.82}],"uid":450938338,"valid":true}}}
-← {"type":"reply","id":38,"ok":{"kind":"done"}}
+→ {"id":39,"call":"lighthouse_calibration_write","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":2,"bs":0,"calibration":{"sweeps":[{"phase":0.0,"tilt":-0.047,"curve":0.21,"gibmag":-0.006,"gibphase":1.14,"ogeemag":-0.12,"ogeephase":0.82},{"phase":0.0,"tilt":0.046,"curve":0.21,"gibmag":-0.006,"gibphase":1.14,"ogeemag":-0.12,"ogeephase":0.82}],"uid":450938338,"valid":true}}}
+← {"type":"reply","id":39,"ok":{"kind":"done"}}
 ```
 
 ### `trajectory_write_uncompressed`
@@ -742,8 +755,8 @@ Write uncompressed trajectory segments to trajectory memory `id` at `start_addr`
 Reply: [`written`](#written-reply)
 
 ```text
-→ {"id":39,"call":"trajectory_write_uncompressed","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":3,"start_addr":0,"segments":[{"duration":2.0,"x":{"values":[0.0,0.0,0.0,0.0,0.94,-0.47,0.078,0.0]},"y":{"values":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]},"z":{"values":[0.5,0.0,0.0,0.0,0.0,0.0,0.0,0.0]},"yaw":{"values":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]}}]}}
-← {"type":"reply","id":39,"ok":{"kind":"written","bytes":132}}
+→ {"id":40,"call":"trajectory_write_uncompressed","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":3,"start_addr":0,"segments":[{"duration":2.0,"x":{"values":[0.0,0.0,0.0,0.0,0.94,-0.47,0.078,0.0]},"y":{"values":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]},"z":{"values":[0.5,0.0,0.0,0.0,0.0,0.0,0.0,0.0]},"yaw":{"values":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]}}]}}
+← {"type":"reply","id":40,"ok":{"kind":"written","bytes":132}}
 ```
 
 ### `trajectory_write_compressed`
@@ -761,8 +774,8 @@ Write a compressed trajectory to trajectory memory `id` at `start_addr`. Replies
 Reply: [`written`](#written-reply)
 
 ```text
-→ {"id":40,"call":"trajectory_write_compressed","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":3,"start_addr":0,"start":{"x":0.0,"y":0.0,"z":0.5,"yaw":0.0},"segments":[{"duration":2.0,"x":[1.0],"y":[],"z":[],"yaw":[]}]}}
-← {"type":"reply","id":40,"ok":{"kind":"written","bytes":13}}
+→ {"id":41,"call":"trajectory_write_compressed","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":3,"start_addr":0,"start":{"x":0.0,"y":0.0,"z":0.5,"yaw":0.0},"segments":[{"duration":2.0,"x":[1.0],"y":[],"z":[],"yaw":[]}]}}
+← {"type":"reply","id":41,"ok":{"kind":"written","bytes":13}}
 ```
 
 ### `loco_read_id_list`
@@ -778,8 +791,8 @@ The anchor ids in Loco memory `id`: all configured ones, or the `active` ones. R
 Reply: [`ids`](#ids-reply)
 
 ```text
-→ {"id":41,"call":"loco_read_id_list","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":4,"active":false}}
-← {"type":"reply","id":41,"ok":{"kind":"ids","ids":[0,1,2,3,4,5,6,7]}}
+→ {"id":42,"call":"loco_read_id_list","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":4,"active":false}}
+← {"type":"reply","id":42,"ok":{"kind":"ids","ids":[0,1,2,3,4,5,6,7]}}
 ```
 
 ### `loco_read_anchor`
@@ -795,8 +808,8 @@ The position of `anchor` in Loco memory `id`.
 Reply: [`loco_anchor`](#loco_anchor-reply)
 
 ```text
-→ {"id":42,"call":"loco_read_anchor","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":4,"anchor":0}}
-← {"type":"reply","id":42,"ok":{"kind":"loco_anchor","position":[0.0,0.0,0.2],"is_valid":true}}
+→ {"id":43,"call":"loco_read_anchor","args":{"uri":"radio:///80/2M/E7E7E7E7E7","id":4,"anchor":0}}
+← {"type":"reply","id":43,"ok":{"kind":"loco_anchor","position":[0.0,0.0,0.2],"is_valid":true}}
 ```
 
 ## Positioning
@@ -816,8 +829,8 @@ Send a Loco Positioning Protocol packet to anchor `dest_id`, through the Crazyfl
 Reply: [`done`](#done-reply)
 
 ```text
-→ {"id":43,"call":"send_short_lpp_packet","args":{"uri":"radio:///80/2M/E7E7E7E7E7","dest_id":0,"data":[1,0,0,0,0,0,0,0,0,205,204,76,62]}}
-← {"type":"reply","id":43,"ok":{"kind":"done"}}
+→ {"id":44,"call":"send_short_lpp_packet","args":{"uri":"radio:///80/2M/E7E7E7E7E7","dest_id":0,"data":[1,0,0,0,0,0,0,0,0,205,204,76,62]}}
+← {"type":"reply","id":44,"ok":{"kind":"done"}}
 ```
 
 ### `lighthouse_persist`
@@ -833,8 +846,8 @@ Store the geometries and calibrations of these base stations in the Crazyflie's 
 Reply: [`bool`](#bool-reply)
 
 ```text
-→ {"id":44,"call":"lighthouse_persist","args":{"uri":"radio:///80/2M/E7E7E7E7E7","geometries":[0,1],"calibrations":[0,1]}}
-← {"type":"reply","id":44,"ok":{"kind":"bool","value":true}}
+→ {"id":45,"call":"lighthouse_persist","args":{"uri":"radio:///80/2M/E7E7E7E7E7","geometries":[0,1],"calibrations":[0,1]}}
+← {"type":"reply","id":45,"ok":{"kind":"bool","value":true}}
 ```
 
 ## Jobs and power
@@ -856,8 +869,8 @@ Reply: [`done`](#done-reply)
 Events on `sub`: [`progress`](#progress-event), [`flashed`](#flashed-event), [`flash_failed`](#flash_failed-event), [`done`](#done-event)
 
 ```text
-→ {"id":45,"call":"flash","args":{"uris":["radio:///80/2M/E7E7E7E7E7","radio:///80/2M/E7E7E7E701"],"sub":5,"images":[{"target":"stm32","data":"AAAAIA=="}]}}
-← {"type":"reply","id":45,"ok":{"kind":"done"}}
+→ {"id":46,"call":"flash","args":{"uris":["radio:///80/2M/E7E7E7E7E7","radio:///80/2M/E7E7E7E701"],"sub":5,"images":[{"target":"stm32","data":"AAAAIA=="}]}}
+← {"type":"reply","id":46,"ok":{"kind":"done"}}
 ← {"type":"event","sub":5,"event":{"kind":"progress","uri":"radio:///80/2M/E7E7E7E7E7","step":"Restarting into the bootloader","done":0,"total":1}}
 ← {"type":"event","sub":5,"event":{"kind":"progress","step":"Broadcasting stm32 to 2 Crazyflies","done":81920,"total":245760}}
 ← {"type":"event","sub":5,"event":{"kind":"flashed","uri":"radio:///80/2M/E7E7E7E7E7","how":"broadcast"}}
@@ -878,8 +891,8 @@ Reply: [`done`](#done-reply)
 Events on `sub`: [`busy`](#busy-event), [`available`](#available-event)
 
 ```text
-→ {"id":46,"call":"watch","args":{"sub":6}}
-← {"type":"reply","id":46,"ok":{"kind":"done"}}
+→ {"id":47,"call":"watch","args":{"sub":6}}
+← {"type":"reply","id":47,"ok":{"kind":"done"}}
 ← {"type":"event","sub":6,"event":{"kind":"busy","uri":"radio:///80/2M/E7E7E7E7E7","reason":"radio:///80/2M/E7E7E7E7E7 is being flashed by fly.py"}}
 ← {"type":"event","sub":6,"event":{"kind":"available","uri":"radio:///80/2M/E7E7E7E7E7","connected":true}}
 ← {"type":"event","sub":6,"event":{"kind":"busy","uri":"radio:///80/2M/E7E7E7E701","reason":"radio:///80/2M/E7E7E7E701 is restarting, rebooted by fly.py"}}
@@ -899,8 +912,8 @@ A command the Crazyflie's nRF51 handles, sent without connecting to it. Its clie
 Reply: [`done`](#done-reply)
 
 ```text
-→ {"id":47,"call":"platform","args":{"uri":"radio:///80/2M/E7E7E7E701","command":"reboot","new_uri":"radio:///90/2M/E7E7E7E701"}}
-← {"type":"reply","id":47,"ok":{"kind":"done"}}
+→ {"id":48,"call":"platform","args":{"uri":"radio:///80/2M/E7E7E7E701","command":"reboot","new_uri":"radio:///90/2M/E7E7E7E701"}}
+← {"type":"reply","id":48,"ok":{"kind":"done"}}
 ```
 
 ## Replies
@@ -943,6 +956,16 @@ The Crazyflies the server is connected to.
 | `connected` | [`CfInfo`](#cfinfo)[] |
 
 Replies to [`list`](#list).
+
+### `radios` reply
+
+The Crazyradios the server holds or has used, by index.
+
+| Field | Type |
+|---|---|
+| `radios` | [`RadioInfo`](#radioinfo)[] |
+
+Replies to [`radios`](#radios).
 
 ### `attached` reply
 
@@ -1282,7 +1305,7 @@ The calibration of one of a base station's two sweeps, see `crazyflie_lib::subsy
 
 ### `LinkStatistics`
 
-Radio link statistics, see `crazyflie_lib::subsystems::link_service::Statistics`. Every field is `null` over USB, `rssi` also with a Crazyradio that doesn't measure it.
+Radio link statistics over the last second, see `crazyflie_lib::subsystems::link_service::Statistics`. Every field is `null` over USB, `rssi` also with a Crazyradio that doesn't measure it.
 
 | Field | Type | Description |
 |---|---|---|
@@ -1389,6 +1412,25 @@ An uncompressed trajectory segment, see `crazyflie_lib::subsystems::memory::Poly
 | `y` | [`Poly`](#poly) |  |
 | `z` | [`Poly`](#poly) |  |
 | `yaw` | [`Poly`](#poly) |  |
+
+### `RadioInfo`
+
+One of the server's Crazyradios, see [`radios`](#radios).
+
+| Field | Type | Description |
+|---|---|---|
+| `index` | integer | The index in `radio://<index>/…` URIs, and the `radio` of a [`CfInfo`](#cfinfo) |
+| `links` | [`RadioLink`](#radiolink)[] | The Crazyflies connected on it |
+
+### `RadioLink`
+
+A Crazyflie connected on one of the server's Crazyradios.
+
+| Field | Type | Description |
+|---|---|---|
+| `uri` | string | Normalized URI |
+| `clients` | string[] | Names of the clients attached to it, empty while it lingers |
+| `statistics` | [`LinkStatistics`](#linkstatistics) | How the link is doing |
 
 ### `TocItem`
 
