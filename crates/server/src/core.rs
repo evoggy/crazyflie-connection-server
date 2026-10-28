@@ -67,7 +67,11 @@ impl Core {
                 session.handle(message);
             }
         });
-        let core = Arc::new(Self { in_process: Some(in_process), _listener: listener, ..Self::new(mode, tx) });
+        let core = Arc::new(Self {
+            in_process: Some(in_process),
+            _listener: listener,
+            ..Self::new(mode, tx)
+        });
         let weak = Arc::downgrade(&core);
         tokio::spawn(async move {
             while let Some(message) = incoming.recv().await {
@@ -90,7 +94,9 @@ impl Core {
         let (tx, mut outgoing) = mpsc::unbounded_channel::<ClientMessage>();
         tokio::spawn(async move {
             while let Some(message) = outgoing.recv().await {
-                let Ok(text) = serde_json::to_string(&message) else { continue };
+                let Ok(text) = serde_json::to_string(&message) else {
+                    continue;
+                };
                 if sink.send(Message::Text(text.into())).await.is_err() {
                     break;
                 }
@@ -101,7 +107,9 @@ impl Core {
         let weak = Arc::downgrade(&core);
         tokio::spawn(async move {
             while let Some(Ok(message)) = stream.next().await {
-                let Message::Text(text) = message else { continue };
+                let Message::Text(text) = message else {
+                    continue;
+                };
                 let Ok(message) = serde_json::from_str::<ServerMessage>(text.as_str()) else {
                     log::warn!("Invalid message from server: {text}");
                     continue;
@@ -140,8 +148,12 @@ impl Core {
             return Err(Error::ConnectionLost);
         }
         match reply_rx.await {
-            Ok(ServerMessage::Reply { ok: Some(response), .. }) => Ok(response),
-            Ok(ServerMessage::Reply { error: Some(error), .. }) => Err(Error::Server(error)),
+            Ok(ServerMessage::Reply {
+                ok: Some(response), ..
+            }) => Ok(response),
+            Ok(ServerMessage::Reply {
+                error: Some(error), ..
+            }) => Err(Error::Server(error)),
             Ok(_) => Err(Error::UnexpectedReply),
             Err(_) => Err(Error::ConnectionLost),
         }
@@ -156,23 +168,35 @@ impl Core {
     /// Reserve a stream number and its event channel, before the subscribe request is sent
     /// Open a stream that isn't tied to a Crazyflie (a job, the server's
     /// events), so it stays open when one is disconnected
-    pub(crate) fn open_server_stream(self: &Arc<Self>) -> (StreamGuard, mpsc::UnboundedReceiver<Event>) {
+    pub(crate) fn open_server_stream(
+        self: &Arc<Self>,
+    ) -> (StreamGuard, mpsc::UnboundedReceiver<Event>) {
         self.open_stream("")
     }
 
-    pub(crate) fn open_stream(self: &Arc<Self>, uri: &str) -> (StreamGuard, mpsc::UnboundedReceiver<Event>) {
+    pub(crate) fn open_stream(
+        self: &Arc<Self>,
+        uri: &str,
+    ) -> (StreamGuard, mpsc::UnboundedReceiver<Event>) {
         let sub = self.next_id();
         let (tx, rx) = mpsc::unbounded_channel();
         self.subs.lock().unwrap().insert(sub, (uri.to_owned(), tx));
-        (StreamGuard { core: self.clone(), sub }, rx)
+        (
+            StreamGuard {
+                core: self.clone(),
+                sub,
+            },
+            rx,
+        )
     }
 
     /// Count a new handle to an attached Crazyflie and return its disconnect watch
     pub(crate) fn add_attached(&self, key: &str) -> watch::Receiver<Option<String>> {
         let mut attached = self.attached.lock().unwrap();
-        let entry = attached
-            .entry(key.to_owned())
-            .or_insert_with(|| Attached { count: 0, lost: watch::Sender::new(None) });
+        let entry = attached.entry(key.to_owned()).or_insert_with(|| Attached {
+            count: 0,
+            lost: watch::Sender::new(None),
+        });
         entry.count += 1;
         entry.lost.subscribe()
     }
@@ -182,7 +206,9 @@ impl Core {
     pub(crate) fn detach(&self, key: &str) {
         if let Some(entry) = self.attached.lock().unwrap().remove(key) {
             entry.lost.send_replace(Some("Detached".to_owned()));
-            self.send(Request::Detach { uri: key.to_owned() });
+            self.send(Request::Detach {
+                uri: key.to_owned(),
+            });
         }
         self.subs.lock().unwrap().retain(|_, (uri, _)| uri != key);
     }
@@ -194,7 +220,9 @@ impl Core {
             entry.count -= 1;
             if entry.count == 0 {
                 attached.remove(key);
-                self.send(Request::Detach { uri: key.to_owned() });
+                self.send(Request::Detach {
+                    uri: key.to_owned(),
+                });
             }
         }
     }
@@ -203,14 +231,18 @@ impl Core {
         self.pending.lock().unwrap().clear();
         self.subs.lock().unwrap().clear();
         for entry in self.attached.lock().unwrap().values() {
-            entry.lost.send_replace(Some("Connection to the server lost".to_owned()));
+            entry
+                .lost
+                .send_replace(Some("Connection to the server lost".to_owned()));
         }
     }
 }
 
 /// Route one server message. Returns `false` once the client is gone
 fn route(core: &Weak<Core>, message: ServerMessage) -> bool {
-    let Some(core) = core.upgrade() else { return false };
+    let Some(core) = core.upgrade() else {
+        return false;
+    };
     match message {
         ServerMessage::Reply { id, .. } => {
             if let Some(reply_tx) = core.pending.lock().unwrap().remove(&id) {
@@ -234,7 +266,9 @@ fn route(core: &Weak<Core>, message: ServerMessage) -> bool {
                 if *key != uri {
                     return true;
                 }
-                let _ = tx.send(Event::Ended { reason: format!("Disconnected: {reason}") });
+                let _ = tx.send(Event::Ended {
+                    reason: format!("Disconnected: {reason}"),
+                });
                 false
             });
         }

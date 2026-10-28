@@ -42,7 +42,11 @@ enum Command {
     /// Read a parameter
     Get { uri: String, name: String },
     /// Set a parameter
-    Set { uri: String, name: String, value: f64 },
+    Set {
+        uri: String,
+        name: String,
+        value: f64,
+    },
     /// Print every parameter change, made by any client
     WatchParams { uri: String },
     /// Print log variables
@@ -132,8 +136,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Info { uri } => {
             let cf = client.attach(&uri).await?;
             println!("URI:      {}", cf.uri());
-            println!("Firmware: {}", cf.platform.firmware_version().unwrap_or("?"));
-            println!("Device:   {}", cf.platform.device_type_name().unwrap_or("?"));
+            println!(
+                "Firmware: {}",
+                cf.platform.firmware_version().unwrap_or("?")
+            );
+            println!(
+                "Device:   {}",
+                cf.platform.device_type_name().unwrap_or("?")
+            );
             println!("Params:   {}", cf.param.names().len());
             println!("Log vars: {}", cf.log.names().len());
         }
@@ -141,8 +151,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let cf = client.attach(&uri).await?;
             for name in cf.param.names() {
                 let value = cf.param.get_lossy(&name).await?;
-                let access = if cf.param.is_writable(&name)? { "rw" } else { "ro" };
-                println!("{name:<40} {:<4} {access} {value}", cf.param.get_type(&name)?);
+                let access = if cf.param.is_writable(&name)? {
+                    "rw"
+                } else {
+                    "ro"
+                };
+                println!(
+                    "{name:<40} {:<4} {access} {value}",
+                    cf.param.get_type(&name)?
+                );
             }
         }
         Command::Get { uri, name } => {
@@ -163,15 +180,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .await;
         }
-        Command::Log { uri, vars, period_ms, count } => {
+        Command::Log {
+            uri,
+            vars,
+            period_ms,
+            count,
+        } => {
             let cf = client.attach(&uri).await?;
             let vars: Vec<&str> = vars.iter().map(String::as_str).collect();
-            let mut stream = cf.log.subscribe(&vars, Duration::from_millis(period_ms)).await?;
+            let mut stream = cf
+                .log
+                .subscribe(&vars, Duration::from_millis(period_ms))
+                .await?;
             let mut printed = 0;
             while count.is_none_or(|count| printed < count) {
                 let sample = stream.next().await?;
-                let values: Vec<String> =
-                    vars.iter().map(|var| format!("{var}={:.3}", sample.data.get(*var).unwrap_or(&f64::NAN))).collect();
+                let values: Vec<String> = vars
+                    .iter()
+                    .map(|var| format!("{var}={:.3}", sample.data.get(*var).unwrap_or(&f64::NAN)))
+                    .collect();
                 println!("{:>10} {}", sample.timestamp, values.join(" "));
                 printed += 1;
             }
@@ -194,20 +221,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let cf = client.attach(&uri).await?;
             cf.supervisor.send_arming_request(!disarm).await?;
         }
-        Command::Takeoff { uri, height, duration } => {
+        Command::Takeoff {
+            uri,
+            height,
+            duration,
+        } => {
             let cf = client.attach(&uri).await?;
-            cf.high_level_commander.take_off(height, None, duration, None).await?;
+            cf.high_level_commander
+                .take_off(height, None, duration, None)
+                .await?;
             tokio::time::sleep(Duration::from_secs_f32(duration)).await;
         }
-        Command::Land { uri, height, duration } => {
+        Command::Land {
+            uri,
+            height,
+            duration,
+        } => {
             let cf = client.attach(&uri).await?;
-            cf.high_level_commander.land(height, None, duration, None).await?;
+            cf.high_level_commander
+                .land(height, None, duration, None)
+                .await?;
             tokio::time::sleep(Duration::from_secs_f32(duration)).await;
             cf.high_level_commander.stop(None).await?;
         }
-        Command::Goto { uri, x, y, z, yaw, duration, relative } => {
+        Command::Goto {
+            uri,
+            x,
+            y,
+            z,
+            yaw,
+            duration,
+            relative,
+        } => {
             let cf = client.attach(&uri).await?;
-            cf.high_level_commander.go_to(x, y, z, yaw, duration, relative, false, None).await?;
+            cf.high_level_commander
+                .go_to(x, y, z, yaw, duration, relative, false, None)
+                .await?;
             tokio::time::sleep(Duration::from_secs_f32(duration)).await;
         }
         Command::Stop { uri } => {
@@ -239,7 +288,11 @@ async fn until_disconnect(cf: &Crazyflie, work: impl Future<Output = ()>) {
 }
 
 fn clients(clients: &[String]) -> String {
-    if clients.is_empty() { String::new() } else { format!("  [{}]", clients.join(", ")) }
+    if clients.is_empty() {
+        String::new()
+    } else {
+        format!("  [{}]", clients.join(", "))
+    }
 }
 
 fn parse_address(address: &str) -> Result<[u8; 5], String> {

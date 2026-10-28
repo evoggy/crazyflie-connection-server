@@ -34,11 +34,13 @@ pub mod memory;
 mod server;
 
 pub use crate::crazyflie::{
-    Commander, Console, Crazyflie, HighLevelCommander, Lighthouse, LighthouseAngleData, LighthouseAngles, LinkService,
-    LocoPositioning, Localization, Log, LogData, LogStream, Param, Platform, Supervisor,
+    Commander, Console, Crazyflie, HighLevelCommander, Lighthouse, LighthouseAngleData,
+    LighthouseAngles, LinkService, Localization, LocoPositioning, Log, LogData, LogStream, Param,
+    Platform, Supervisor,
 };
 pub use crazyflie_connection_protocol::{
-    CfInfo, DEFAULT_PORT, FlashStart, LinkStatistics, NormalizedUri, PersistentParamState, TocItem, normalize_uri,
+    CfInfo, DEFAULT_PORT, FlashStart, LinkStatistics, NormalizedUri, PersistentParamState, TocItem,
+    normalize_uri,
 };
 
 #[cfg(feature = "server")]
@@ -120,14 +122,16 @@ impl Client {
             "shared" => Self::shared(in_process.config).await?,
             "auto" | "" => match Self::connect(&local_address()).await {
                 Ok(server) => server,
-                Err(_) if in_process.auto_shared => match Self::shared(in_process.config.clone()).await {
-                    Ok(server) => server,
-                    Err(e) => {
-                        // The port is taken by something that isn't a server: keep it private
-                        log::warn!("{e}, other programs can't attach");
-                        Self::direct_with(in_process.config).await?
+                Err(_) if in_process.auto_shared => {
+                    match Self::shared(in_process.config.clone()).await {
+                        Ok(server) => server,
+                        Err(e) => {
+                            // The port is taken by something that isn't a server: keep it private
+                            log::warn!("{e}, other programs can't attach");
+                            Self::direct_with(in_process.config).await?
+                        }
                     }
-                },
+                }
                 Err(_) => Self::direct_with(in_process.config).await?,
             },
             "local" => Self::connect(&local_address()).await?,
@@ -156,7 +160,9 @@ impl Client {
                 log::warn!("Serving other programs failed: {e}");
             }
         });
-        Ok(Self { core: Core::in_process(server, "shared".to_owned(), Some(stop)) })
+        Ok(Self {
+            core: Core::in_process(server, "shared".to_owned(), Some(stop)),
+        })
     }
 
     /// Open the mode given by `CRAZYFLIE_CONNECTION`, or `auto` when it is not set
@@ -167,7 +173,11 @@ impl Client {
     /// Run a server in this process
     #[cfg(feature = "server")]
     pub async fn direct() -> Result<Self> {
-        Self::direct_with(ServerConfig { name: "direct".to_owned(), ..Default::default() }).await
+        Self::direct_with(ServerConfig {
+            name: "direct".to_owned(),
+            ..Default::default()
+        })
+        .await
     }
 
     /// Run a server with these settings in this process
@@ -180,13 +190,17 @@ impl Client {
     /// Crazyflies the program connected itself ([Server::adopt])
     #[cfg(feature = "server")]
     pub fn in_process(server: Server) -> Self {
-        Self { core: Core::in_process(server, "direct".to_owned(), None) }
+        Self {
+            core: Core::in_process(server, "direct".to_owned(), None),
+        }
     }
 
     /// Run a server in this process (not available: built without the `server` feature)
     #[cfg(not(feature = "server"))]
     pub async fn direct() -> Result<Self> {
-        Err(Error::Transport("Direct and shared mode need the `server` feature".to_owned()))
+        Err(Error::Transport(
+            "Direct and shared mode need the `server` feature".to_owned(),
+        ))
     }
 
     /// Connect to a server over WebSocket: `host`, `host:port` or a `ws://` URL
@@ -198,7 +212,9 @@ impl Client {
         } else {
             format!("ws://{address}:{DEFAULT_PORT}/")
         };
-        Ok(Self { core: Core::websocket(&url).await? })
+        Ok(Self {
+            core: Core::websocket(&url).await?,
+        })
     }
 
     /// Where this connection goes: `direct`, `shared` or the server URL
@@ -226,10 +242,9 @@ impl Client {
     /// removes it from the server
     #[cfg(feature = "server")]
     pub async fn adopt(&self, uri: &str, cf: Arc<crazyflie_lib::Crazyflie>) -> Result<Crazyflie> {
-        let server = self
-            .core
-            .in_process_server()
-            .ok_or_else(|| Error::Transport("Adopting a Crazyflie needs the server in this process".to_owned()))?;
+        let server = self.core.in_process_server().ok_or_else(|| {
+            Error::Transport("Adopting a Crazyflie needs the server in this process".to_owned())
+        })?;
         server.adopt(uri, cf).await.map_err(Error::Server)?;
         self.attach(uri).await
     }
@@ -247,7 +262,11 @@ impl Client {
 
     /// Name this client. Other clients see it in scan and list results
     pub async fn set_name(&self, name: &str) -> Result<()> {
-        self.core.call(Request::Hello { name: name.to_owned() }).await?;
+        self.core
+            .call(Request::Hello {
+                name: name.to_owned(),
+            })
+            .await?;
         Ok(())
     }
 
@@ -288,7 +307,11 @@ impl Client {
     /// if the change didn't take). Clients attached to it are disconnected,
     /// and it isn't connected again
     pub async fn reboot_to(&self, uri: &str, new_uri: &str) -> Result<()> {
-        let request = Request::Platform { uri: uri.to_owned(), command: PlatformCommand::Reboot, new_uri: Some(new_uri.to_owned()) };
+        let request = Request::Platform {
+            uri: uri.to_owned(),
+            command: PlatformCommand::Reboot,
+            new_uri: Some(new_uri.to_owned()),
+        };
         self.core.call(request).await?;
         Ok(())
     }
@@ -304,18 +327,26 @@ impl Client {
     /// attached to it are disconnected, and it is announced
     /// [ServerEvent::Busy] until it is woken up
     pub async fn power_off_stm32_domain(&self, uri: &str) -> Result<()> {
-        self.platform(uri, PlatformCommand::PowerOffStm32Domain).await
+        self.platform(uri, PlatformCommand::PowerOffStm32Domain)
+            .await
     }
 
     /// Power the STM32 and decks of the Crazyflie at `uri` on again (wake up).
     /// Returns once its firmware answers, when it is also announced
     /// [ServerEvent::Available]
     pub async fn power_on_stm32_domain(&self, uri: &str) -> Result<()> {
-        self.platform(uri, PlatformCommand::PowerOnStm32Domain).await
+        self.platform(uri, PlatformCommand::PowerOnStm32Domain)
+            .await
     }
 
     async fn platform(&self, uri: &str, command: PlatformCommand) -> Result<()> {
-        self.core.call(Request::Platform { uri: uri.to_owned(), command, new_uri: None }).await?;
+        self.core
+            .call(Request::Platform {
+                uri: uri.to_owned(),
+                command,
+                new_uri: None,
+            })
+            .await?;
         Ok(())
     }
 
@@ -341,12 +372,22 @@ impl Client {
             Response::Done => {}
             _ => return Err(Error::UnexpectedReply),
         }
-        Ok(crate::crazyflie::event_stream(guard, events, |event| match event {
-            Event::Busy { uri, reason } => Some(ServerEvent::Busy { uri, reason }),
-            Event::Available { uri, connected, moved_to } => Some(ServerEvent::Available { uri, connected, moved_to }),
-            _ => None,
-        })
-        .boxed())
+        Ok(
+            crate::crazyflie::event_stream(guard, events, |event| match event {
+                Event::Busy { uri, reason } => Some(ServerEvent::Busy { uri, reason }),
+                Event::Available {
+                    uri,
+                    connected,
+                    moved_to,
+                } => Some(ServerEvent::Available {
+                    uri,
+                    connected,
+                    moved_to,
+                }),
+                _ => None,
+            })
+            .boxed(),
+        )
     }
 
     /// Flash firmware to the Crazyflie at `uri`, a radio URI: the server
@@ -355,7 +396,12 @@ impl Client {
     /// Programs attached to the Crazyflie are disconnected. The job runs on the
     /// server and finishes even if this program goes away. `progress` is
     /// called as it goes
-    pub async fn flash(&self, uri: &str, images: Vec<FlashImage>, progress: impl FnMut(FlashProgress)) -> Result<()> {
+    pub async fn flash(
+        &self,
+        uri: &str,
+        images: Vec<FlashImage>,
+        progress: impl FnMut(FlashProgress),
+    ) -> Result<()> {
         match self.flash_swarm(&[uri], images, progress).await?.pop() {
             Some(Ok(_)) => Ok(()),
             Some(Err(reason)) => Err(Error::Server(reason)),
@@ -390,11 +436,20 @@ impl Client {
             .map_err(Error::Server)?;
         let (guard, mut events) = self.core.open_server_stream();
         let uris = uris.iter().map(|uri| uri.to_string()).collect();
-        match self.core.call(Request::Flash { uris, sub: guard.sub(), images }).await? {
+        match self
+            .core
+            .call(Request::Flash {
+                uris,
+                sub: guard.sub(),
+                images,
+            })
+            .await?
+        {
             Response::Done => {}
             _ => return Err(Error::UnexpectedReply),
         }
-        let mut results: Vec<Option<std::result::Result<String, String>>> = keys.iter().map(|_| None).collect();
+        let mut results: Vec<Option<std::result::Result<String, String>>> =
+            keys.iter().map(|_| None).collect();
         let mut set = |uri: &str, result| {
             if let Some(index) = keys.iter().position(|key| key == uri) {
                 results[index] = Some(result);
@@ -402,7 +457,17 @@ impl Client {
         };
         loop {
             match events.recv().await {
-                Some(Event::Progress { uri, step, done, total }) => progress(FlashProgress { uri, step, done, total }),
+                Some(Event::Progress {
+                    uri,
+                    step,
+                    done,
+                    total,
+                }) => progress(FlashProgress {
+                    uri,
+                    step,
+                    done,
+                    total,
+                }),
                 Some(Event::Flashed { uri, how }) => set(&uri, Ok(how)),
                 Some(Event::FlashFailed { uri, reason }) => set(&uri, Err(reason)),
                 Some(Event::Done) => break,
@@ -411,7 +476,10 @@ impl Client {
                 None => return Err(Error::ConnectionLost),
             }
         }
-        Ok(results.into_iter().map(|result| result.unwrap_or_else(|| Err("No result from the server".to_owned()))).collect())
+        Ok(results
+            .into_iter()
+            .map(|result| result.unwrap_or_else(|| Err("No result from the server".to_owned())))
+            .collect())
     }
 }
 
@@ -424,7 +492,11 @@ pub enum ServerEvent {
     /// The job on the Crazyflie is done. `connected`: the server connected it
     /// again, so attaching to it is immediate. `moved_to`: it was rebooted
     /// onto another channel or address ([Client::reboot_to]) and answers there
-    Available { uri: String, connected: bool, moved_to: Option<String> },
+    Available {
+        uri: String,
+        connected: bool,
+        moved_to: Option<String>,
+    },
 }
 
 /// A firmware image for [Client::flash] and [Client::flash_swarm]
@@ -464,13 +536,21 @@ pub struct InProcess {
 #[cfg(feature = "server")]
 impl Default for InProcess {
     fn default() -> Self {
-        Self { config: ServerConfig { name: "direct".to_owned(), ..Default::default() }, auto_shared: false }
+        Self {
+            config: ServerConfig {
+                name: "direct".to_owned(),
+                ..Default::default()
+            },
+            auto_shared: false,
+        }
     }
 }
 
 /// Whether a server is listening on this machine (what `auto` mode looks for)
 pub async fn local_server_running() -> bool {
-    tokio::net::TcpStream::connect(local_address()).await.is_ok()
+    tokio::net::TcpStream::connect(local_address())
+        .await
+        .is_ok()
 }
 
 fn local_address() -> String {
@@ -481,7 +561,11 @@ fn local_address() -> String {
 fn default_name() -> String {
     let program = std::env::args()
         .next()
-        .and_then(|arg0| std::path::Path::new(&arg0).file_name().map(|name| name.to_string_lossy().into_owned()))
+        .and_then(|arg0| {
+            std::path::Path::new(&arg0)
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
         .unwrap_or_else(|| "client".to_owned());
     format!("{program} ({})", std::process::id())
 }

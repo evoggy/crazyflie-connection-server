@@ -79,7 +79,11 @@ pub enum Request {
     /// Read a param from the Crazyflie
     ParamGet { uri: String, name: String },
     /// Set a param. Every value is a number, converted to the param's type
-    ParamSet { uri: String, name: String, value: f64 },
+    ParamSet {
+        uri: String,
+        name: String,
+        value: f64,
+    },
     /// Stream of [Event::ParamChanged] for every param set by any client
     ParamWatch { uri: String, sub: u64 },
     /// Whether a param can be stored in the EEPROM. Replies [Response::Bool].
@@ -233,14 +237,23 @@ pub enum Request {
     /// time, the others one after another. Clients attached to them are
     /// disconnected, and attaching and scanning are refused until the job is
     /// done. The job finishes even if the client that started it goes away
-    Flash { uris: Vec<String>, sub: u64, images: Vec<FlashImage> },
+    Flash {
+        uris: Vec<String>,
+        sub: u64,
+        images: Vec<FlashImage>,
+    },
 
     /// Stream of [Event::Busy] and [Event::Available]: the Crazyflies that jobs
     /// take over and give back
     Watch { sub: u64 },
 
     /// Read `length` bytes of memory `id` (see [AttachInfo::memories]) from `address`
-    MemoryRead { uri: String, id: u8, address: u32, length: u32 },
+    MemoryRead {
+        uri: String,
+        id: u8,
+        address: u32,
+        length: u32,
+    },
     /// Write `data` to memory `id` at `address`
     MemoryWrite {
         uri: String,
@@ -254,20 +267,39 @@ pub enum Request {
     /// Read the EEPROM config memory `id`
     EepromConfigRead { uri: String, id: u8 },
     /// Write the EEPROM config memory `id`. The firmware applies it at boot
-    EepromConfigWrite { uri: String, id: u8, config: EepromConfig },
+    EepromConfigWrite {
+        uri: String,
+        id: u8,
+        config: EepromConfig,
+    },
     /// Read the geometry of base station `bs` from lighthouse memory `id`
     LighthouseGeometryRead { uri: String, id: u8, bs: u8 },
     /// Write the geometry of base station `bs` to lighthouse memory `id`. The
     /// Crazyflie uses it until it restarts, see [Request::LighthousePersist]
-    LighthouseGeometryWrite { uri: String, id: u8, bs: u8, geometry: LighthouseBsGeometry },
+    LighthouseGeometryWrite {
+        uri: String,
+        id: u8,
+        bs: u8,
+        geometry: LighthouseBsGeometry,
+    },
     /// Read the calibration of base station `bs` from lighthouse memory `id`
     LighthouseCalibrationRead { uri: String, id: u8, bs: u8 },
     /// Write the calibration of base station `bs` to lighthouse memory `id`.
     /// The Crazyflie uses it until it restarts, see [Request::LighthousePersist]
-    LighthouseCalibrationWrite { uri: String, id: u8, bs: u8, calibration: LighthouseBsCalibration },
+    LighthouseCalibrationWrite {
+        uri: String,
+        id: u8,
+        bs: u8,
+        calibration: LighthouseBsCalibration,
+    },
     /// Write uncompressed trajectory segments to trajectory memory `id` at
     /// `start_addr`. Replies [Response::Written]
-    TrajectoryWriteUncompressed { uri: String, id: u8, start_addr: u32, segments: Vec<Poly4D> },
+    TrajectoryWriteUncompressed {
+        uri: String,
+        id: u8,
+        start_addr: u32,
+        segments: Vec<Poly4D>,
+    },
     /// Write a compressed trajectory to trajectory memory `id` at `start_addr`.
     /// Replies [Response::Written]
     TrajectoryWriteCompressed {
@@ -390,13 +422,19 @@ pub enum Response {
         protocol: u32,
     },
     /// The Crazyflies that answered
-    Scan { found: Vec<CfInfo> },
+    Scan {
+        found: Vec<CfInfo>,
+    },
     /// The Crazyflies the server is connected to
-    List { connected: Vec<CfInfo> },
+    List {
+        connected: Vec<CfInfo>,
+    },
     /// The Crazyflie attached to
     Attached(AttachInfo),
     /// A param value
-    Value { value: f64 },
+    Value {
+        value: f64,
+    },
     PersistentState(PersistentParamState),
     LinkStatistics(LinkStatistics),
     /// Bytes read
@@ -404,15 +442,21 @@ pub enum Response {
         /// base64 encoded
         data: String,
     },
-    Bool { value: bool },
+    Bool {
+        value: bool,
+    },
     OneWire(OneWireMemory),
     EepromConfig(EepromConfig),
     LighthouseGeometry(LighthouseBsGeometry),
     LighthouseCalibration(LighthouseBsCalibration),
     /// Bytes written
-    Written { bytes: u64 },
+    Written {
+        bytes: u64,
+    },
     /// Loco anchor ids
-    Ids { ids: Vec<u8> },
+    Ids {
+        ids: Vec<u8>,
+    },
     LocoAnchor(LocoAnchorData),
 }
 
@@ -433,7 +477,11 @@ pub enum Event {
     /// A line the Crazyflie printed, without the newline
     Console { line: String },
     /// Sweep angles of the four sensors, in radians, from one base station
-    LighthouseAngles { base_station: u8, x: [f32; 4], y: [f32; 4] },
+    LighthouseAngles {
+        base_station: u8,
+        x: [f32; 4],
+        y: [f32; 4],
+    },
     /// How far a job is: `done` of `total` for its current `step`, on the
     /// Crazyflie at `uri`, or on all of them (e.g. a broadcast) without one
     Progress {
@@ -633,7 +681,13 @@ pub struct Poly4D {
 
 impl Poly4D {
     pub fn new(duration: f32, x: Poly, y: Poly, z: Poly, yaw: Poly) -> Self {
-        Self { duration, x, y, z, yaw }
+        Self {
+            duration,
+            x,
+            y,
+            z,
+            yaw,
+        }
     }
 }
 
@@ -673,13 +727,28 @@ pub struct CompressedSegment {
 
 impl CompressedSegment {
     /// Fails unless every axis has 0, 1, 3 or 7 control points
-    pub fn new(duration: f32, x: Vec<f32>, y: Vec<f32>, z: Vec<f32>, yaw: Vec<f32>) -> Result<Self, String> {
+    pub fn new(
+        duration: f32,
+        x: Vec<f32>,
+        y: Vec<f32>,
+        z: Vec<f32>,
+        yaw: Vec<f32>,
+    ) -> Result<Self, String> {
         for axis in [&x, &y, &z, &yaw] {
             if ![0, 1, 3, 7].contains(&axis.len()) {
-                return Err(format!("A compressed segment axis has {} control points, not 0, 1, 3 or 7", axis.len()));
+                return Err(format!(
+                    "A compressed segment axis has {} control points, not 0, 1, 3 or 7",
+                    axis.len()
+                ));
             }
         }
-        Ok(Self { duration, x, y, z, yaw })
+        Ok(Self {
+            duration,
+            x,
+            y,
+            z,
+            yaw,
+        })
     }
 }
 
@@ -766,7 +835,12 @@ pub struct NormalizedUri {
 impl NormalizedUri {
     /// The channel of a radio URI
     pub fn channel(&self) -> Option<u8> {
-        self.key.strip_prefix("radio:///")?.split('/').next()?.parse().ok()
+        self.key
+            .strip_prefix("radio:///")?
+            .split('/')
+            .next()?
+            .parse()
+            .ok()
     }
 }
 
@@ -784,7 +858,11 @@ impl NormalizedUri {
 /// ```
 pub fn normalize_uri(uri: &str) -> Result<NormalizedUri, String> {
     let Some(rest) = uri.strip_prefix("radio://") else {
-        return Ok(NormalizedUri { key: uri.to_owned(), radio: None, options: None });
+        return Ok(NormalizedUri {
+            key: uri.to_owned(),
+            radio: None,
+            options: None,
+        });
     };
     let (path, options) = match rest.split_once('?') {
         Some((path, options)) => (path, Some(options.to_owned())),
@@ -793,7 +871,11 @@ pub fn normalize_uri(uri: &str) -> Result<NormalizedUri, String> {
     let mut parts = path.split('/');
     let radio = match parts.next() {
         Some("") | None => None,
-        Some(index) => Some(index.parse().map_err(|_| format!("Invalid radio index in {uri}"))?),
+        Some(index) => Some(
+            index
+                .parse()
+                .map_err(|_| format!("Invalid radio index in {uri}"))?,
+        ),
     };
     let channel: u8 = parts
         .next()
@@ -812,7 +894,11 @@ pub fn normalize_uri(uri: &str) -> Result<NormalizedUri, String> {
         }
         Some(_) => return Err(format!("Invalid address in {uri}")),
     };
-    Ok(NormalizedUri { key: format!("radio:///{channel}/{datarate}/{address}"), radio, options })
+    Ok(NormalizedUri {
+        key: format!("radio:///{channel}/{datarate}/{address}"),
+        radio,
+        options,
+    })
 }
 
 #[cfg(test)]
@@ -826,7 +912,11 @@ mod tests {
     fn request_json_shape() {
         let msg = ClientMessage {
             id: 7,
-            request: Request::ParamSet { uri: "radio:///80/2M/E7E7E7E701".into(), name: "led.bitmask".into(), value: 3.0 },
+            request: Request::ParamSet {
+                uri: "radio:///80/2M/E7E7E7E701".into(),
+                name: "led.bitmask".into(),
+                value: 3.0,
+            },
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert_eq!(
@@ -842,10 +932,25 @@ mod tests {
 
     #[test]
     fn reply_json_shape() {
-        let msg = ServerMessage::Reply { id: 7, ok: Some(Response::Done), error: None };
-        assert_eq!(serde_json::to_string(&msg).unwrap(), r#"{"type":"reply","id":7,"ok":{"kind":"done"}}"#);
-        let msg: ServerMessage = serde_json::from_str(r#"{"type":"reply","id":3,"error":"nope"}"#).unwrap();
-        assert!(matches!(msg, ServerMessage::Reply { id: 3, ok: None, error: Some(_) }));
+        let msg = ServerMessage::Reply {
+            id: 7,
+            ok: Some(Response::Done),
+            error: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&msg).unwrap(),
+            r#"{"type":"reply","id":7,"ok":{"kind":"done"}}"#
+        );
+        let msg: ServerMessage =
+            serde_json::from_str(r#"{"type":"reply","id":3,"error":"nope"}"#).unwrap();
+        assert!(matches!(
+            msg,
+            ServerMessage::Reply {
+                id: 3,
+                ok: None,
+                error: Some(_)
+            }
+        ));
     }
 
     #[test]
@@ -853,21 +958,34 @@ mod tests {
         let n = normalize_uri("radio:///80").unwrap();
         assert_eq!(n.key, "radio:///80/2M/E7E7E7E7E7");
         assert_eq!(n.radio, None);
-        assert_eq!(normalize_uri("radio://0/80/2m/E7E7E7E701").unwrap().key, "radio:///80/2M/E7E7E7E701");
+        assert_eq!(
+            normalize_uri("radio://0/80/2m/E7E7E7E701").unwrap().key,
+            "radio:///80/2M/E7E7E7E701"
+        );
         assert_eq!(normalize_uri("usb://0").unwrap().key, "usb://0");
         assert!(normalize_uri("radio://x/80").is_err());
         assert!(normalize_uri("radio:///80/2M/E7").is_err());
-        assert_eq!(normalize_uri("radio://1/88/2M/ABAD1DEA01").unwrap().channel(), Some(88));
+        assert_eq!(
+            normalize_uri("radio://1/88/2M/ABAD1DEA01")
+                .unwrap()
+                .channel(),
+            Some(88)
+        );
         assert_eq!(normalize_uri("usb://0").unwrap().channel(), None);
     }
 
     #[test]
     fn memory_types_by_name() {
-        let info: MemoryInfo = serde_json::from_str(r#"{"id":3,"type":"eeprom_config","size":21}"#).unwrap();
+        let info: MemoryInfo =
+            serde_json::from_str(r#"{"id":3,"type":"eeprom_config","size":21}"#).unwrap();
         assert_eq!(info.memory_type, MemoryType::EEPROMConfig);
-        let info: MemoryInfo = serde_json::from_str(r#"{"id":4,"type":"something_new","size":1}"#).unwrap();
+        let info: MemoryInfo =
+            serde_json::from_str(r#"{"id":4,"type":"something_new","size":1}"#).unwrap();
         assert_eq!(info.memory_type, MemoryType::UNKNOWN);
-        assert_eq!(serde_json::to_string(&MemoryType::DeckCtrlDFU).unwrap(), r#""deck_ctrl_dfu""#);
+        assert_eq!(
+            serde_json::to_string(&MemoryType::DeckCtrlDFU).unwrap(),
+            r#""deck_ctrl_dfu""#
+        );
     }
 
     #[test]
@@ -886,4 +1004,3 @@ mod tests {
         );
     }
 }
-

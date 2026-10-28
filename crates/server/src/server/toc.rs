@@ -55,7 +55,8 @@ impl TocCache for FileTocCache {
         let path = self.path(key);
         let n = WRITES.fetch_add(1, Ordering::Relaxed);
         let temporary = path.with_extension(format!("json.{}-{n}.tmp", std::process::id()));
-        let stored = std::fs::write(&temporary, toc).and_then(|()| std::fs::rename(&temporary, &path));
+        let stored =
+            std::fs::write(&temporary, toc).and_then(|()| std::fs::rename(&temporary, &path));
         if let Err(e) = stored {
             let _ = std::fs::remove_file(&temporary);
             warn!("Couldn't store a TOC in {}: {e}", path.display());
@@ -74,7 +75,10 @@ pub(super) struct ServerTocCache {
 
 impl ServerTocCache {
     pub(super) fn new(store: Option<Arc<dyn TocStore>>) -> Self {
-        Self { store, memory: Arc::default() }
+        Self {
+            store,
+            memory: Arc::default(),
+        }
     }
 }
 
@@ -108,7 +112,10 @@ pub(super) struct ProbeCache {
 
 impl ProbeCache {
     pub(super) fn new(inner: ServerTocCache) -> Self {
-        Self { inner, missed: Arc::default() }
+        Self {
+            inner,
+            missed: Arc::default(),
+        }
     }
 
     /// The keys that weren't in the cache
@@ -149,16 +156,25 @@ impl TocDownloads {
     /// downloading all of them already
     pub(super) fn claim(&self, keys: &[Vec<u8>]) -> Result<Downloading, Waiting> {
         let mut downloads = self.0.lock().unwrap();
-        let waits: Vec<watch::Receiver<()>> =
-            keys.iter().filter_map(|key| downloads.get(key).map(watch::Sender::subscribe)).collect();
+        let waits: Vec<watch::Receiver<()>> = keys
+            .iter()
+            .filter_map(|key| downloads.get(key).map(watch::Sender::subscribe))
+            .collect();
         if waits.len() == keys.len() {
             return Err(Waiting(waits));
         }
-        let mine: Vec<Vec<u8>> = keys.iter().filter(|key| !downloads.contains_key(*key)).cloned().collect();
+        let mine: Vec<Vec<u8>> = keys
+            .iter()
+            .filter(|key| !downloads.contains_key(*key))
+            .cloned()
+            .collect();
         for key in &mine {
             downloads.insert(key.clone(), watch::Sender::new(()));
         }
-        Ok(Downloading { downloads: self.clone(), keys: mine })
+        Ok(Downloading {
+            downloads: self.clone(),
+            keys: mine,
+        })
     }
 }
 
@@ -194,9 +210,16 @@ mod tests {
         cache.store_toc(&[0x01, 0xab], r#"{"a":[1,8]}"#);
         // Another instance on the same directory, as after a restart
         let again = FileTocCache::new(&dir).unwrap();
-        assert_eq!(again.get_toc(&[0x01, 0xab]).as_deref(), Some(r#"{"a":[1,8]}"#));
+        assert_eq!(
+            again.get_toc(&[0x01, 0xab]).as_deref(),
+            Some(r#"{"a":[1,8]}"#)
+        );
         assert!(dir.join("01ab.json").exists());
-        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "no temporary file left");
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            1,
+            "no temporary file left"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -215,17 +238,26 @@ mod tests {
     async fn one_download_per_toc() {
         let downloads = TocDownloads::default();
         let keys = vec![vec![1], vec![2]];
-        let Ok(first) = downloads.claim(&keys) else { panic!("the first connection downloads") };
-        let Err(second) = downloads.claim(&keys) else { panic!("the second waits") };
+        let Ok(first) = downloads.claim(&keys) else {
+            panic!("the first connection downloads")
+        };
+        let Err(second) = downloads.claim(&keys) else {
+            panic!("the second waits")
+        };
         // Missing one more TOC than is being downloaded: download, that one only
-        let Ok(third) = downloads.claim(&[vec![1], vec![3]]) else { panic!("a new TOC is downloaded") };
+        let Ok(third) = downloads.claim(&[vec![1], vec![3]]) else {
+            panic!("a new TOC is downloaded")
+        };
         assert_eq!(third.keys, vec![vec![3]]);
 
         let waiting = tokio::spawn(second.finished());
         tokio::task::yield_now().await;
         assert!(!waiting.is_finished());
         drop(first);
-        tokio::time::timeout(std::time::Duration::from_secs(1), waiting).await.unwrap().unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(1), waiting)
+            .await
+            .unwrap()
+            .unwrap();
         assert!(downloads.claim(&keys).is_ok());
     }
 }

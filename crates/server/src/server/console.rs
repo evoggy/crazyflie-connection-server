@@ -20,7 +20,9 @@ pub(crate) struct ConsoleLines {
 impl ConsoleLines {
     /// Split the console of `cf` into lines, from the text since it was connected
     pub(crate) async fn start(cf: &Crazyflie) -> Arc<Self> {
-        let lines = Arc::new(Self { state: Mutex::new((Vec::new(), broadcast::Sender::new(LINES_BUFFERED))) });
+        let lines = Arc::new(Self {
+            state: Mutex::new((Vec::new(), broadcast::Sender::new(LINES_BUFFERED))),
+        });
         // The first item is the text since the connection, then each packet's
         let mut text = Box::pin(cf.console.stream().await);
         let splitter = lines.clone();
@@ -42,7 +44,10 @@ impl ConsoleLines {
     pub(crate) fn subscribe(&self, history: bool) -> impl Stream<Item = String> + Send + 'static {
         let (old, new) = {
             let state = self.state.lock().unwrap();
-            (if history { state.0.clone() } else { Vec::new() }, state.1.subscribe())
+            (
+                if history { state.0.clone() } else { Vec::new() },
+                state.1.subscribe(),
+            )
         };
         let new = futures::stream::unfold(new, |mut new| async move {
             loop {

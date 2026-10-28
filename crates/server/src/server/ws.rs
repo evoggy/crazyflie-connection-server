@@ -26,15 +26,20 @@ pub async fn serve_on(
 ) -> std::io::Result<()> {
     info!("Listening on ws://{}", listener.local_addr()?);
     let stopped = server.stopped();
-    let app = Router::new().route("/", get(upgrade)).with_state(server.clone());
-    let result = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-        .with_graceful_shutdown(async move {
-            tokio::select! {
-                _ = stop => {}
-                _ = stopped => {}
-            }
-        })
-        .await;
+    let app = Router::new()
+        .route("/", get(upgrade))
+        .with_state(server.clone());
+    let result = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
+        tokio::select! {
+            _ = stop => {}
+            _ = stopped => {}
+        }
+    })
+    .await;
     server.close_clients();
     result
 }
@@ -55,7 +60,9 @@ async fn client(server: Server, socket: WebSocket, peer: SocketAddr) {
 
     let writer = tokio::spawn(async move {
         while let Some(message) = replies.recv().await {
-            let Ok(text) = serde_json::to_string(&message) else { continue };
+            let Ok(text) = serde_json::to_string(&message) else {
+                continue;
+            };
             if sink.send(Message::Text(text.into())).await.is_err() {
                 break;
             }

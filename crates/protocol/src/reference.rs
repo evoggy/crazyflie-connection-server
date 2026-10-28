@@ -25,11 +25,19 @@ struct Example {
 }
 
 fn call(request: Request, reply: Response) -> Example {
-    Example { request, reply, events: Vec::new() }
+    Example {
+        request,
+        reply,
+        events: Vec::new(),
+    }
 }
 
 fn stream(request: Request, reply: Response, events: Vec<Event>) -> Example {
-    Example { request, reply, events }
+    Example {
+        request,
+        reply,
+        events,
+    }
 }
 
 fn uri() -> String {
@@ -60,11 +68,24 @@ fn groups() -> Vec<Group> {
         firmware_version: Some("2025.09".into()),
         device_type: Some("Crazyflie 2.1".into()),
         protocol_version: Some(10),
-        params: vec![toc("led.bitmask", "u8", true), toc("pm.lowVoltage", "f32", true)],
+        params: vec![
+            toc("led.bitmask", "u8", true),
+            toc("pm.lowVoltage", "f32", true),
+        ],
         log_vars: vec![toc("pm.vbat", "f32", true)],
         memories: vec![
-            MemoryInfo { id: 0, memory_type: MemoryType::EEPROMConfig, size: 21, serial: None },
-            MemoryInfo { id: 1, memory_type: MemoryType::OneWire, size: 112, serial: Some("F1A2C3D4E5F60718".into()) },
+            MemoryInfo {
+                id: 0,
+                memory_type: MemoryType::EEPROMConfig,
+                size: 21,
+                serial: None,
+            },
+            MemoryInfo {
+                id: 1,
+                memory_type: MemoryType::OneWire,
+                size: 112,
+                serial: Some("F1A2C3D4E5F60718".into()),
+            },
         ],
     };
     let eeprom = EepromConfig {
@@ -88,8 +109,17 @@ fn groups() -> Vec<Group> {
         ogeemag: -0.12,
         ogeephase: 0.82,
     };
-    let calibration =
-        LighthouseBsCalibration { sweeps: [sweep, LighthouseCalibrationSweep { tilt: 0.046, ..sweep }], uid: 450938338, valid: true };
+    let calibration = LighthouseBsCalibration {
+        sweeps: [
+            sweep,
+            LighthouseCalibrationSweep {
+                tilt: 0.046,
+                ..sweep
+            },
+        ],
+        uid: 450938338,
+        valid: true,
+    };
     let segment = Poly4D::new(
         2.0,
         Poly::from_slice(&[0.0, 0.0, 0.0, 0.0, 0.94, -0.47, 0.078]),
@@ -405,7 +435,11 @@ impl Schema {
                 }
             }
         }
-        Self { client, server, defs }
+        Self {
+            client,
+            server,
+            defs,
+        }
     }
 
     /// The variants of a tagged enum's schema, by tag
@@ -414,7 +448,12 @@ impl Schema {
             .as_array()
             .unwrap()
             .iter()
-            .map(|variant| (variant["properties"][tag]["const"].as_str().unwrap(), variant))
+            .map(|variant| {
+                (
+                    variant["properties"][tag]["const"].as_str().unwrap(),
+                    variant,
+                )
+            })
             .collect()
     }
 
@@ -484,9 +523,17 @@ fn snake_case(name: &str) -> String {
 fn doc(text: &str, links: bool) -> String {
     let link = |target: &str| -> String {
         let (text, anchor) = match target.split_once("::") {
-            Some(("Request", variant)) => (format!("`{}`", snake_case(variant)), snake_case(variant)),
-            Some(("Response", variant)) => (format!("`{}` reply", snake_case(variant)), format!("{}-reply", snake_case(variant))),
-            Some(("Event", variant)) => (format!("`{}` event", snake_case(variant)), format!("{}-event", snake_case(variant))),
+            Some(("Request", variant)) => {
+                (format!("`{}`", snake_case(variant)), snake_case(variant))
+            }
+            Some(("Response", variant)) => (
+                format!("`{}` reply", snake_case(variant)),
+                format!("{}-reply", snake_case(variant)),
+            ),
+            Some(("Event", variant)) => (
+                format!("`{}` event", snake_case(variant)),
+                format!("{}-event", snake_case(variant)),
+            ),
             Some((ty, member)) => (format!("`{}`", snake_case(member)), ty.to_lowercase()),
             None if target == "normalize_uri" => ("URIs".to_owned(), "protocol.md#uris".to_owned()),
             None if target == "PROTOCOL_VERSION" => return format!("`{PROTOCOL_VERSION}`"),
@@ -507,7 +554,9 @@ fn doc(text: &str, links: bool) -> String {
         let target = from[1..].split(']').next().unwrap_or("");
         let is_link = !target.is_empty()
             && from.len() > target.len() + 1
-            && target.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == ':')
+            && target
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == ':')
             && !from[target.len() + 2..].starts_with('(');
         if is_link {
             out.push_str(&link(target));
@@ -518,11 +567,17 @@ fn doc(text: &str, links: bool) -> String {
         }
     }
     out.push_str(rest);
-    out.split("\n\n").map(|paragraph| paragraph.replace('\n', " ")).collect::<Vec<_>>().join("\n\n")
+    out.split("\n\n")
+        .map(|paragraph| paragraph.replace('\n', " "))
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 fn description(schema: &Value) -> Option<String> {
-    schema.get("description").and_then(Value::as_str).map(|text| doc(text, true))
+    schema
+        .get("description")
+        .and_then(Value::as_str)
+        .map(|text| doc(text, true))
 }
 
 /// A description as a paragraph, ending with a full stop
@@ -543,17 +598,27 @@ fn type_name(schema: &Value) -> String {
         };
     }
     if let Some(any) = schema.get("anyOf").and_then(Value::as_array) {
-        let types: Vec<String> = any.iter().filter(|s| s["type"] != "null").map(type_name).collect();
+        let types: Vec<String> = any
+            .iter()
+            .filter(|s| s["type"] != "null")
+            .map(type_name)
+            .collect();
         return types.join(" or ");
     }
     let ty = match &schema["type"] {
         Value::String(ty) => ty.as_str(),
-        Value::Array(types) => types.iter().filter_map(Value::as_str).find(|&ty| ty != "null").unwrap_or("null"),
+        Value::Array(types) => types
+            .iter()
+            .filter_map(Value::as_str)
+            .find(|&ty| ty != "null")
+            .unwrap_or("null"),
         _ => "any",
     };
     match ty {
         "integer" => match schema.get("format").and_then(Value::as_str) {
-            Some(format @ ("uint8" | "uint16" | "uint32" | "uint64")) => format!("u{}", &format[4..]),
+            Some(format @ ("uint8" | "uint16" | "uint32" | "uint64")) => {
+                format!("u{}", &format[4..])
+            }
             _ => "integer".to_owned(),
         },
         "array" => {
@@ -573,9 +638,14 @@ fn type_name(schema: &Value) -> String {
 
 /// A table of an object schema's fields, without `skip` (the tag)
 fn fields(out: &mut String, heading: &str, schema: &Value, skip: &str) {
-    let Some(properties) = schema.get("properties").and_then(Value::as_object) else { return };
-    let required: Vec<&str> =
-        schema.get("required").and_then(Value::as_array).map(|r| r.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+        return;
+    };
+    let required: Vec<&str> = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|r| r.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
     let rows: Vec<(String, String, String)> = properties
         .iter()
         .filter(|(name, _)| *name != skip)
@@ -586,9 +656,12 @@ fn fields(out: &mut String, heading: &str, schema: &Value, skip: &str) {
             }
             let description = match (description(field), name.as_str()) {
                 (Some(text), _) => text.replace('\n', " "),
-                (None, "uri") if heading == "Argument" => "The Crazyflie, see [URIs](protocol.md#uris)".to_owned(),
+                (None, "uri") if heading == "Argument" => {
+                    "The Crazyflie, see [URIs](protocol.md#uris)".to_owned()
+                }
                 (None, "sub") if heading == "Argument" => {
-                    "Stream number, picked by the client, see [streams](protocol.md#streams)".to_owned()
+                    "Stream number, picked by the client, see [streams](protocol.md#streams)"
+                        .to_owned()
                 }
                 (None, _) => String::new(),
             };
@@ -598,7 +671,10 @@ fn fields(out: &mut String, heading: &str, schema: &Value, skip: &str) {
     if rows.is_empty() {
         return;
     }
-    if rows.iter().any(|(_, _, description)| !description.is_empty()) {
+    if rows
+        .iter()
+        .any(|(_, _, description)| !description.is_empty())
+    {
         writeln!(out, "| {heading} | Type | Description |\n|---|---|---|").unwrap();
         for (name, ty, description) in rows {
             writeln!(out, "| {name} | {ty} | {description} |").unwrap();
@@ -616,7 +692,10 @@ fn fields(out: &mut String, heading: &str, schema: &Value, skip: &str) {
 fn variant_fields(out: &mut String, schema: &Value) {
     if schema.get("$ref").is_some() {
         writeln!(out, "The fields of {}.\n", type_name(schema)).unwrap();
-    } else if schema["properties"].as_object().is_some_and(|properties| properties.len() > 1) {
+    } else if schema["properties"]
+        .as_object()
+        .is_some_and(|properties| properties.len() > 1)
+    {
         fields(out, "Field", schema, "kind");
     } else {
         writeln!(out, "No fields.\n").unwrap();
@@ -624,11 +703,18 @@ fn variant_fields(out: &mut String, schema: &Value) {
 }
 
 fn kind(value: &impl Serialize, tag: &str) -> String {
-    serde_json::to_value(value).unwrap()[tag].as_str().unwrap().to_owned()
+    serde_json::to_value(value).unwrap()[tag]
+        .as_str()
+        .unwrap()
+        .to_owned()
 }
 
 fn links(names: &[String], suffix: &str) -> String {
-    names.iter().map(|name| format!("[`{name}`](#{name}{suffix})")).collect::<Vec<_>>().join(", ")
+    names
+        .iter()
+        .map(|name| format!("[`{name}`](#{name}{suffix})"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// The event kinds a call's stream sends: those of its example, and `ended`
@@ -642,7 +728,8 @@ fn event_kinds(example: &Example) -> Vec<String> {
         }
     }
     let args = &serde_json::to_value(&example.request).unwrap()["args"];
-    if args.get("uri").is_some() && args.get("sub").is_some() && !kinds.iter().any(|k| k == "ended") {
+    if args.get("uri").is_some() && args.get("sub").is_some() && !kinds.iter().any(|k| k == "ended")
+    {
         kinds.push("ended".to_owned());
     }
     kinds
@@ -651,13 +738,23 @@ fn event_kinds(example: &Example) -> Vec<String> {
 /// The example's messages, as they go over the WebSocket
 fn transcript(id: u64, example: &Example) -> String {
     let mut lines = Vec::new();
-    let request = ClientMessage { id, request: example.request.clone() };
+    let request = ClientMessage {
+        id,
+        request: example.request.clone(),
+    };
     lines.push(format!("→ {}", serde_json::to_string(&request).unwrap()));
-    let reply = ServerMessage::Reply { id, ok: Some(example.reply.clone()), error: None };
+    let reply = ServerMessage::Reply {
+        id,
+        ok: Some(example.reply.clone()),
+        error: None,
+    };
     lines.push(format!("← {}", serde_json::to_string(&reply).unwrap()));
     let sub = serde_json::to_value(&example.request).unwrap()["args"]["sub"].as_u64();
     for event in &example.events {
-        let event = ServerMessage::Event { sub: sub.expect("a stream's request has a sub"), event: event.clone() };
+        let event = ServerMessage::Event {
+            sub: sub.expect("a stream's request has a sub"),
+            event: event.clone(),
+        };
         lines.push(format!("← {}", serde_json::to_string(&event).unwrap()));
     }
     format!("```text\n{}\n```\n", lines.join("\n"))
@@ -672,7 +769,10 @@ fn reference(schema: &Schema) -> String {
     let mut sent_on: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for example in groups.iter().flat_map(|group| &group.examples) {
         let call = kind(&example.request, "call");
-        replied_by.entry(kind(&example.reply, "kind")).or_default().push(call.clone());
+        replied_by
+            .entry(kind(&example.reply, "kind"))
+            .or_default()
+            .push(call.clone());
         for event in event_kinds(example) {
             sent_on.entry(event).or_default().push(call.clone());
         }
@@ -694,19 +794,47 @@ fn reference(schema: &Schema) -> String {
 
     writeln!(out, "| | |\n|---|---|").unwrap();
     for group in &groups {
-        let names: Vec<String> = group.examples.iter().map(|example| kind(&example.request, "call")).collect();
-        writeln!(out, "| [{}](#{}) | {} |", group.title, group.title.to_lowercase().replace(' ', "-"), links(&names, "")).unwrap();
+        let names: Vec<String> = group
+            .examples
+            .iter()
+            .map(|example| kind(&example.request, "call"))
+            .collect();
+        writeln!(
+            out,
+            "| [{}](#{}) | {} |",
+            group.title,
+            group.title.to_lowercase().replace(' ', "-"),
+            links(&names, "")
+        )
+        .unwrap();
     }
-    let replies: Vec<String> = schema.replies().iter().map(|(name, _)| name.to_string()).collect();
-    let events: Vec<String> = schema.events().iter().map(|(name, _)| name.to_string()).collect();
+    let replies: Vec<String> = schema
+        .replies()
+        .iter()
+        .map(|(name, _)| name.to_string())
+        .collect();
+    let events: Vec<String> = schema
+        .events()
+        .iter()
+        .map(|(name, _)| name.to_string())
+        .collect();
     let mut types: Vec<&String> = type_defs(schema);
     types.sort();
-    writeln!(out, "| [Replies](#replies) | {} |", links(&replies, "-reply")).unwrap();
+    writeln!(
+        out,
+        "| [Replies](#replies) | {} |",
+        links(&replies, "-reply")
+    )
+    .unwrap();
     writeln!(out, "| [Events](#events) | {} |", links(&events, "-event")).unwrap();
     writeln!(
         out,
         "| [Types](#types) | {} |\n",
-        types.iter().map(|name| format!("[`{name}`](#{})", name.to_lowercase())).collect::<Vec<_>>().join(", ")
+        types
+            .iter()
+            .map(|name| format!("[`{name}`](#{})", name.to_lowercase()))
+            .collect::<Vec<_>>()
+            .join(", ")
     )
     .unwrap();
 
@@ -719,10 +847,24 @@ fn reference(schema: &Schema) -> String {
     .unwrap();
     writeln!(out, "| Field | Type | Description |\n|---|---|---|").unwrap();
     let id = &schema.client["properties"]["id"];
-    writeln!(out, "| `id` | {} | {} |", type_name(id), description(id).unwrap_or_default()).unwrap();
-    writeln!(out, "| `call` | string | One of the [calls](#clients-and-crazyflies) below |").unwrap();
+    writeln!(
+        out,
+        "| `id` | {} | {} |",
+        type_name(id),
+        description(id).unwrap_or_default()
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "| `call` | string | One of the [calls](#clients-and-crazyflies) below |"
+    )
+    .unwrap();
     writeln!(out, "| `args` | object | The call's arguments |\n").unwrap();
-    writeln!(out, "The server sends three kinds of messages, told apart by their `type`.\n").unwrap();
+    writeln!(
+        out,
+        "The server sends three kinds of messages, told apart by their `type`.\n"
+    )
+    .unwrap();
     for (name, message) in Schema::variants(&schema.server, "type") {
         writeln!(out, "### `{name}`\n").unwrap();
         if let Some(text) = description(message) {
@@ -757,7 +899,11 @@ fn reference(schema: &Schema) -> String {
         }
     }
 
-    writeln!(out, "## Replies\n\nThe `ok` of a [`reply`](#reply). Its `kind` tells which.\n").unwrap();
+    writeln!(
+        out,
+        "## Replies\n\nThe `ok` of a [`reply`](#reply). Its `kind` tells which.\n"
+    )
+    .unwrap();
     for (name, reply) in schema.replies() {
         writeln!(out, "### `{name}` reply\n").unwrap();
         if let Some(text) = description(reply) {
@@ -767,7 +913,11 @@ fn reference(schema: &Schema) -> String {
         writeln!(out, "Replies to {}.\n", links(&replied_by[name], "")).unwrap();
     }
 
-    writeln!(out, "## Events\n\nThe `event` of an [`event`](#event) message. Its `kind` tells which.\n").unwrap();
+    writeln!(
+        out,
+        "## Events\n\nThe `event` of an [`event`](#event) message. Its `kind` tells which.\n"
+    )
+    .unwrap();
     for (name, event) in schema.events() {
         writeln!(out, "### `{name}` event\n").unwrap();
         if let Some(text) = description(event) {
@@ -789,7 +939,10 @@ fn reference(schema: &Schema) -> String {
             writeln!(out, "A string: {}.\n", values.join(", ")).unwrap();
         } else if let Some(variants) = def.get("oneOf").and_then(Value::as_array) {
             // Named values, those with a description each on their own
-            if variants.iter().all(|variant| variant.get("const").is_some() || variant.get("enum").is_some()) {
+            if variants
+                .iter()
+                .all(|variant| variant.get("const").is_some() || variant.get("enum").is_some())
+            {
                 writeln!(out, "| Value | Description |\n|---|---|").unwrap();
                 for variant in variants {
                     let text = description(variant).unwrap_or_default().replace('\n', " ");
@@ -826,7 +979,11 @@ fn reference(schema: &Schema) -> String {
 
 /// The definitions the Types section lists: all but the reply and event payloads
 fn type_defs(schema: &Schema) -> Vec<&String> {
-    schema.defs.keys().filter(|name| !matches!(name.as_str(), "Response" | "Event")).collect()
+    schema
+        .defs
+        .keys()
+        .filter(|name| !matches!(name.as_str(), "Response" | "Event"))
+        .collect()
 }
 
 #[test]
@@ -834,18 +991,37 @@ fn every_call_reply_and_event_has_an_example() {
     let schema = Schema::new();
     let groups = groups();
     let examples: Vec<&Example> = groups.iter().flat_map(|group| &group.examples).collect();
-    let calls: Vec<String> = examples.iter().map(|example| kind(&example.request, "call")).collect();
+    let calls: Vec<String> = examples
+        .iter()
+        .map(|example| kind(&example.request, "call"))
+        .collect();
     for (call, _) in schema.calls() {
         let count = calls.iter().filter(|c| *c == call).count();
-        assert_eq!(count, 1, "`{call}` needs one example in reference.rs, it has {count}");
+        assert_eq!(
+            count, 1,
+            "`{call}` needs one example in reference.rs, it has {count}"
+        );
     }
-    let replies: Vec<String> = examples.iter().map(|example| kind(&example.reply, "kind")).collect();
+    let replies: Vec<String> = examples
+        .iter()
+        .map(|example| kind(&example.reply, "kind"))
+        .collect();
     for (reply, _) in schema.replies() {
-        assert!(replies.iter().any(|r| r == reply), "No example in reference.rs replies `{reply}`");
+        assert!(
+            replies.iter().any(|r| r == reply),
+            "No example in reference.rs replies `{reply}`"
+        );
     }
-    let events: Vec<String> = examples.iter().flat_map(|example| &example.events).map(|event| kind(event, "kind")).collect();
+    let events: Vec<String> = examples
+        .iter()
+        .flat_map(|example| &example.events)
+        .map(|event| kind(event, "kind"))
+        .collect();
     for (event, _) in schema.events() {
-        assert!(events.iter().any(|e| e == event), "No example in reference.rs has the `{event}` event");
+        assert!(
+            events.iter().any(|e| e == event),
+            "No example in reference.rs has the `{event}` event"
+        );
     }
 }
 
@@ -857,10 +1033,20 @@ fn examples_read_back() {
         assert_eq!(serde_json::to_string(&back).unwrap(), json);
     }
     for example in groups().iter().flat_map(|group| &group.examples) {
-        same(&ClientMessage { id: 1, request: example.request.clone() });
-        same(&ServerMessage::Reply { id: 1, ok: Some(example.reply.clone()), error: None });
+        same(&ClientMessage {
+            id: 1,
+            request: example.request.clone(),
+        });
+        same(&ServerMessage::Reply {
+            id: 1,
+            ok: Some(example.reply.clone()),
+            error: None,
+        });
         for event in &example.events {
-            same(&ServerMessage::Event { sub: 1, event: event.clone() });
+            same(&ServerMessage::Event {
+                sub: 1,
+                event: event.clone(),
+            });
         }
     }
 }
@@ -870,7 +1056,10 @@ fn docs_are_up_to_date() {
     let docs = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs");
     let schema = Schema::new();
     let mut changed = Vec::new();
-    for (name, text) in [("protocol-reference.md", reference(&schema)), ("protocol.schema.json", schema.file())] {
+    for (name, text) in [
+        ("protocol-reference.md", reference(&schema)),
+        ("protocol.schema.json", schema.file()),
+    ] {
         let path = docs.join(name);
         if std::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
             std::fs::create_dir_all(&docs).unwrap();
@@ -878,5 +1067,9 @@ fn docs_are_up_to_date() {
             changed.push(format!("docs/{name}"));
         }
     }
-    assert!(changed.is_empty(), "The protocol changed, so {} were written again. Check and commit them", changed.join(" and "));
+    assert!(
+        changed.is_empty(),
+        "The protocol changed, so {} were written again. Check and commit them",
+        changed.join(" and ")
+    );
 }

@@ -21,17 +21,19 @@ pub use session::Session;
 pub use toc::FileTocCache;
 pub use ws::{serve, serve_on};
 
+use crazyflie_connection_protocol::{
+    AttachInfo, CfInfo, Event, NormalizedUri, TocItem, normalize_uri,
+};
 use crazyflie_lib::crazyflie_link::crazyradio::Crazyradio;
 use crazyflie_lib::crazyflie_link::{LinkContext, SharedCrazyradio};
 use crazyflie_lib::{Crazyflie, TocCache};
-use crazyflie_connection_protocol::{AttachInfo, CfInfo, Event, NormalizedUri, TocItem, normalize_uri};
 use log::{info, warn};
 use std::collections::{BTreeMap, HashMap};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
-use tokio::sync::{OnceCell, watch};
 use toc::{ProbeCache, ServerTocCache, TocDownloads};
+use tokio::sync::{OnceCell, watch};
 
 /// How long connecting a Crazyflie may take, TOC download included
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -174,7 +176,10 @@ pub(crate) struct CfEntry {
 impl Server {
     /// Create a server. With `hold_radios` it opens every Crazyradio that is not held by another program
     pub async fn new(config: ServerConfig) -> Self {
-        let link_context = config.link_context.clone().unwrap_or_else(|| Arc::new(LinkContext::new()));
+        let link_context = config
+            .link_context
+            .clone()
+            .unwrap_or_else(|| Arc::new(LinkContext::new()));
         let mut radios = Vec::new();
         let mut radio_load = BTreeMap::new();
         if config.hold_radios {
@@ -187,7 +192,10 @@ impl Server {
                     Err(e) => warn!("Crazyradio {index} unavailable: {e}"),
                 }
             }
-            info!("Using Crazyradios {:?}", radio_load.keys().collect::<Vec<_>>());
+            info!(
+                "Using Crazyradios {:?}",
+                radio_load.keys().collect::<Vec<_>>()
+            );
         }
         let toc_cache = ServerTocCache::new(config.toc_cache.clone());
 
@@ -219,7 +227,13 @@ impl Server {
 
     /// Indexes of the Crazyradios this server holds
     pub fn radios(&self) -> Vec<usize> {
-        self.inner.radio_load.lock().unwrap().keys().copied().collect()
+        self.inner
+            .radio_load
+            .lock()
+            .unwrap()
+            .keys()
+            .copied()
+            .collect()
     }
 
     /// The lib-rs `Crazyflie` behind a connected Crazyflie. For an in-process
@@ -233,8 +247,14 @@ impl Server {
     /// before the program exits
     pub async fn shutdown(&self) {
         self.inner.stopped.send_replace(true);
-        let entries: Vec<Arc<CfEntry>> =
-            self.inner.cfs.lock().unwrap().drain().filter_map(|(_, cell)| cell.get().cloned()).collect();
+        let entries: Vec<Arc<CfEntry>> = self
+            .inner
+            .cfs
+            .lock()
+            .unwrap()
+            .drain()
+            .filter_map(|(_, cell)| cell.get().cloned())
+            .collect();
         for entry in entries {
             if !entry.closing.swap(true, Ordering::SeqCst) {
                 info!("Disconnecting {}", entry.key);
@@ -260,11 +280,22 @@ impl Server {
     }
 
     fn entry(&self, key: &str) -> Option<Arc<CfEntry>> {
-        self.inner.cfs.lock().unwrap().get(key).and_then(|cell| cell.get().cloned())
+        self.inner
+            .cfs
+            .lock()
+            .unwrap()
+            .get(key)
+            .and_then(|cell| cell.get().cloned())
     }
 
     fn entries(&self) -> Vec<Arc<CfEntry>> {
-        self.inner.cfs.lock().unwrap().values().filter_map(|cell| cell.get().cloned()).collect()
+        self.inner
+            .cfs
+            .lock()
+            .unwrap()
+            .values()
+            .filter_map(|cell| cell.get().cloned())
+            .collect()
     }
 
     /// Crazyflies connected on the server, with their clients
@@ -283,32 +314,64 @@ impl Server {
         if attached_radios() > 0 && self.usable_radio().await.is_none() {
             return Err(RADIOS_BUSY.to_owned());
         }
-        let found = self.inner.link_context.scan(address).await.map_err(|e| e.to_string())?;
+        let found = self
+            .inner
+            .link_context
+            .scan(address)
+            .await
+            .map_err(|e| e.to_string())?;
         let mut result = Vec::new();
         for uri in found {
             let key = normalize_uri(&uri)?.key;
-            let clients = self.entry(&key).map(|entry| entry.client_names()).unwrap_or_default();
-            let radio = uri.strip_prefix("radio://").and_then(|rest| rest.split('/').next()?.parse().ok());
-            result.push(CfInfo { uri: key, clients, radio });
+            let clients = self
+                .entry(&key)
+                .map(|entry| entry.client_names())
+                .unwrap_or_default();
+            let radio = uri
+                .strip_prefix("radio://")
+                .and_then(|rest| rest.split('/').next()?.parse().ok());
+            result.push(CfInfo {
+                uri: key,
+                clients,
+                radio,
+            });
         }
         Ok(result)
     }
 
     /// Attach a session to a Crazyflie, connecting it if needed
-    pub(crate) async fn attach(&self, session_id: u64, name: &str, uri: &NormalizedUri) -> Result<Arc<CfEntry>, String> {
+    pub(crate) async fn attach(
+        &self,
+        session_id: u64,
+        name: &str,
+        uri: &NormalizedUri,
+    ) -> Result<Arc<CfEntry>, String> {
         if let Some(reason) = self.inner.busy.lock().unwrap().get(&uri.key) {
             return Err(reason.clone());
         }
         // Unless it was woken up some other way (its button)
         let asleep = self.inner.asleep.lock().unwrap().contains(&uri.key);
         if asleep {
-            if !self.firmware_answers_within(uri, Duration::from_secs(1)).await {
-                return Err(format!("{} is asleep (its STM32 is off). Wake it up first", uri.key));
+            if !self
+                .firmware_answers_within(uri, Duration::from_secs(1))
+                .await
+            {
+                return Err(format!(
+                    "{} is asleep (its STM32 is off). Wake it up first",
+                    uri.key
+                ));
             }
             self.inner.asleep.lock().unwrap().remove(&uri.key);
         }
         loop {
-            let cell = self.inner.cfs.lock().unwrap().entry(uri.key.clone()).or_default().clone();
+            let cell = self
+                .inner
+                .cfs
+                .lock()
+                .unwrap()
+                .entry(uri.key.clone())
+                .or_default()
+                .clone();
             let entry = cell.get_or_try_init(|| self.connect(uri)).await?.clone();
             let attached = {
                 let mut clients = entry.clients.lock().unwrap();
@@ -395,7 +458,13 @@ impl Server {
                 } else {
                     let mut candidates = Vec::new();
                     for index in 0..attached_radios() {
-                        let in_use = self.inner.radio_load.lock().unwrap().get(&index).is_some_and(|links| !links.is_empty());
+                        let in_use = self
+                            .inner
+                            .radio_load
+                            .lock()
+                            .unwrap()
+                            .get(&index)
+                            .is_some_and(|links| !links.is_empty());
                         if in_use || self.inner.link_context.get_radio(index).await.is_ok() {
                             candidates.push(index);
                         }
@@ -405,13 +474,21 @@ impl Server {
                 let load = self.inner.radio_load.lock().unwrap();
                 match choose_radio(&load, &candidates, channel) {
                     Some(radio) => radio,
-                    None if self.inner.config.hold_radios => return Err("No Crazyradio available on the server".to_owned()),
+                    None if self.inner.config.hold_radios => {
+                        return Err("No Crazyradio available on the server".to_owned());
+                    }
                     None if attached_radios() > 0 => return Err(RADIOS_BUSY.to_owned()),
                     None => return Err("No Crazyradio found".to_owned()),
                 }
             }
         };
-        self.inner.radio_load.lock().unwrap().entry(radio).or_default().push(channel);
+        self.inner
+            .radio_load
+            .lock()
+            .unwrap()
+            .entry(radio)
+            .or_default()
+            .push(channel);
         Ok(Slot { radio, channel })
     }
 
@@ -427,9 +504,18 @@ impl Server {
     async fn connect(&self, uri: &NormalizedUri) -> Result<Arc<CfEntry>, String> {
         let (link_uri, slot) = match uri.key.strip_prefix("radio:///") {
             Some(path) => {
-                let slot = self.pick_radio(uri.radio, uri.channel().unwrap_or_default()).await?;
-                let options = uri.options.as_ref().map(|o| format!("?{o}")).unwrap_or_default();
-                (format!("radio://{}/{path}{options}", slot.radio), Some(slot))
+                let slot = self
+                    .pick_radio(uri.radio, uri.channel().unwrap_or_default())
+                    .await?;
+                let options = uri
+                    .options
+                    .as_ref()
+                    .map(|o| format!("?{o}"))
+                    .unwrap_or_default();
+                (
+                    format!("radio://{}/{path}{options}", slot.radio),
+                    Some(slot),
+                )
             }
             None => (uri.key.clone(), None),
         };
@@ -480,7 +566,9 @@ impl Server {
                 }
                 // Downloads them (also after waiting, should the cache not keep them)
                 claim => {
-                    let connected = self.connect_with(link_uri, self.inner.toc_cache.clone()).await;
+                    let connected = self
+                        .connect_with(link_uri, self.inner.toc_cache.clone())
+                        .await;
                     drop(claim);
                     return connected;
                 }
@@ -492,7 +580,11 @@ impl Server {
     /// ones on one radio: a few at a time is slower, since the ones already
     /// connected keep polling the radio while the next ones connect (25 on one
     /// radio: 3.0 s at 8 at a time, 1.4 s all at once, 2026-10-19)
-    async fn connect_with(&self, link_uri: &str, toc_cache: impl TocCache) -> Result<Crazyflie, String> {
+    async fn connect_with(
+        &self,
+        link_uri: &str,
+        toc_cache: impl TocCache,
+    ) -> Result<Crazyflie, String> {
         // crazyflie-link 0.5 panics when the Crazyradio fails while the link
         // starts (an unwrap in `CrazyradioConnection::open`)
         let connecting = std::panic::AssertUnwindSafe(Crazyflie::connect_from_uri(
@@ -500,7 +592,12 @@ impl Server {
             link_uri,
             toc_cache,
         ));
-        match tokio::time::timeout(CONNECT_TIMEOUT, futures::FutureExt::catch_unwind(connecting)).await {
+        match tokio::time::timeout(
+            CONNECT_TIMEOUT,
+            futures::FutureExt::catch_unwind(connecting),
+        )
+        .await
+        {
             Ok(Ok(Ok(cf))) => Ok(cf),
             Ok(Ok(Err(e))) => Err(e.to_string()),
             Ok(Err(_)) => Err("the Crazyradio failed (crazyflie-link panicked)".to_owned()),
@@ -513,21 +610,34 @@ impl Server {
     /// Disconnecting `cf` removes it from the server
     pub async fn adopt(&self, uri: &str, cf: Arc<Crazyflie>) -> Result<(), String> {
         let uri = normalize_uri(uri)?;
-        let cell = self.inner.cfs.lock().unwrap().entry(uri.key.clone()).or_default().clone();
+        let cell = self
+            .inner
+            .cfs
+            .lock()
+            .unwrap()
+            .entry(uri.key.clone())
+            .or_default()
+            .clone();
         let mut adopted = false;
         cell.get_or_init(|| async {
             adopted = true;
             self.register(&uri.key, None, cf).await
         })
         .await;
-        if adopted { Ok(()) } else { Err(format!("{} is already connected", uri.key)) }
+        if adopted {
+            Ok(())
+        } else {
+            Err(format!("{} is already connected", uri.key))
+        }
     }
 
     /// Describe a connected Crazyflie and watch for its disconnect
     async fn register(&self, key: &str, slot: Option<Slot>, cf: Arc<Crazyflie>) -> Arc<CfEntry> {
         let mut params = Vec::new();
         for name in cf.param.names() {
-            let (Ok(value_type), Ok(writable)) = (cf.param.get_type(&name), cf.param.is_writable(&name)) else {
+            let (Ok(value_type), Ok(writable)) =
+                (cf.param.get_type(&name), cf.param.is_writable(&name))
+            else {
                 continue;
             };
             // Not whether it is persistent: that asks the Crazyflie for each
@@ -603,14 +713,24 @@ impl Server {
     /// if none does
     async fn reconnect(&self, uri: &NormalizedUri) -> bool {
         if !self.firmware_answers(uri).await {
-            warn!("Reconnecting after the job: {} didn't answer within {FIRMWARE_START:?}", uri.key);
+            warn!(
+                "Reconnecting after the job: {} didn't answer within {FIRMWARE_START:?}",
+                uri.key
+            );
             return false;
         }
         for attempt in 0..3 {
             if attempt > 0 {
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
-            let cell = self.inner.cfs.lock().unwrap().entry(uri.key.clone()).or_default().clone();
+            let cell = self
+                .inner
+                .cfs
+                .lock()
+                .unwrap()
+                .entry(uri.key.clone())
+                .or_default()
+                .clone();
             match cell.get_or_try_init(|| self.connect(uri)).await {
                 Ok(entry) => {
                     self.close_later(entry.clone());
@@ -634,10 +754,17 @@ impl Server {
         let Some(path) = uri.key.strip_prefix("radio:///") else {
             return true;
         };
-        let Ok(slot) = self.pick_radio(uri.radio, uri.channel().unwrap_or_default()).await else {
+        let Ok(slot) = self
+            .pick_radio(uri.radio, uri.channel().unwrap_or_default())
+            .await
+        else {
             return false;
         };
-        let options = uri.options.as_ref().map(|o| format!("?{o}")).unwrap_or_default();
+        let options = uri
+            .options
+            .as_ref()
+            .map(|o| format!("?{o}"))
+            .unwrap_or_default();
         let link_uri = format!("radio://{}/{path}{options}", slot.radio);
         let deadline = tokio::time::Instant::now() + wait;
         let mut answered = false;
@@ -698,10 +825,17 @@ impl Server {
     /// Open a session for one client. Messages for the client arrive on the returned receiver
     pub fn open_session(
         &self,
-    ) -> (Session, tokio::sync::mpsc::UnboundedReceiver<crazyflie_connection_protocol::ServerMessage>) {
+    ) -> (
+        Session,
+        tokio::sync::mpsc::UnboundedReceiver<crazyflie_connection_protocol::ServerMessage>,
+    ) {
         let id = self.inner.next_session.fetch_add(1, Ordering::SeqCst);
         let (session, rx) = Session::new(self.clone(), id);
-        self.inner.sessions.lock().unwrap().insert(id, Arc::downgrade(session.shared()));
+        self.inner
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(id, Arc::downgrade(session.shared()));
         (session, rx)
     }
 
@@ -725,11 +859,19 @@ impl CfEntry {
 
     /// Why it was disconnected, once it is
     fn lost_reason(&self) -> String {
-        self.lost.lock().unwrap().clone().unwrap_or_else(|| "Crazyflie disconnected".to_owned())
+        self.lost
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| "Crazyflie disconnected".to_owned())
     }
 
     fn cf_info(&self) -> CfInfo {
-        CfInfo { uri: self.key.clone(), clients: self.client_names(), radio: self.slot.map(|slot| slot.radio) }
+        CfInfo {
+            uri: self.key.clone(),
+            clients: self.client_names(),
+            radio: self.slot.map(|slot| slot.radio),
+        }
     }
 }
 
@@ -744,14 +886,22 @@ fn remove_if_same(cfs: &mut HashMap<String, Arc<OnceCell<Arc<CfEntry>>>>, entry:
 }
 
 fn toc_item(name: String, value_type: crazyflie_lib::ValueType, writable: bool) -> TocItem {
-    TocItem { name, value_type: format!("{value_type:?}").to_lowercase(), writable }
+    TocItem {
+        name,
+        value_type: format!("{value_type:?}").to_lowercase(),
+        writable,
+    }
 }
 
 /// Whether the firmware behind `link` answers a link echo (CRTP port 15, channel 0)
 async fn echoes(link: &crazyflie_lib::crazyflie_link::Connection) -> bool {
     use crazyflie_lib::crazyflie_link::Packet;
     for _ in 0..3 {
-        if link.send_packet(Packet::new(15, 0, vec![0xEC])).await.is_err() {
+        if link
+            .send_packet(Packet::new(15, 0, vec![0xEC]))
+            .await
+            .is_err()
+        {
             return false;
         }
         let answer = tokio::time::timeout(Duration::from_millis(200), async {
@@ -773,7 +923,9 @@ const RADIOS_BUSY: &str = "Every Crazyradio is in use by another program (a conn
 
 /// Number of attached Crazyradios, in the order crazyflie-link numbers them
 fn attached_radios() -> usize {
-    Crazyradio::list_serials().map(|serials| serials.len()).unwrap_or(0)
+    Crazyradio::list_serials()
+        .map(|serials| serials.len())
+        .unwrap_or(0)
 }
 
 /// Parse a 5-byte radio address written as 10 hex digits
@@ -793,10 +945,18 @@ pub(crate) fn parse_address(address: &str) -> Result<[u8; 5], String> {
 /// the channels of the links already on each radio: one that has a link
 /// less than [CHANNEL_SPACING] away, else the least loaded, the lowest index
 /// on a tie. Like cfcli's swarm radio plan, but one link at a time
-fn choose_radio(load: &BTreeMap<usize, Vec<u8>>, candidates: &[usize], channel: u8) -> Option<usize> {
+fn choose_radio(
+    load: &BTreeMap<usize, Vec<u8>>,
+    candidates: &[usize],
+    channel: u8,
+) -> Option<usize> {
     let links = |radio: &usize| load.get(radio).map_or(0, Vec::len);
     let near = |radio: &usize| {
-        load.get(radio).is_some_and(|channels| channels.iter().any(|c| c.abs_diff(channel) < CHANNEL_SPACING))
+        load.get(radio).is_some_and(|channels| {
+            channels
+                .iter()
+                .any(|c| c.abs_diff(channel) < CHANNEL_SPACING)
+        })
     };
     candidates
         .iter()

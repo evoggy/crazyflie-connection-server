@@ -100,7 +100,10 @@ struct Reporter {
 
 impl Reporter {
     fn send(&self, event: Event) {
-        let _ = self.tx.send(ServerMessage::Event { sub: self.sub, event });
+        let _ = self.tx.send(ServerMessage::Event {
+            sub: self.sub,
+            event,
+        });
     }
 
     fn progress(&self, uri: Option<&str>, step: &str, done: usize, total: usize) {
@@ -124,7 +127,10 @@ struct Outcome {
 
 impl Outcome {
     fn restarted(result: Result<String, String>) -> Self {
-        Self { result, reconnect: true }
+        Self {
+            result,
+            reconnect: true,
+        }
     }
 }
 
@@ -141,21 +147,37 @@ struct Session {
 impl Session {
     /// Where its bootloader answers
     fn bootloader_uri(&mut self) -> String {
-        let address: String = self.loader.bllink_mut().address().iter().map(|b| format!("{b:02X}")).collect();
-        format!("radio://{}/0/2M/{address}?safelink=0&ackfilter=0", self.radio)
+        let address: String = self
+            .loader
+            .bllink_mut()
+            .address()
+            .iter()
+            .map(|b| format!("{b:02X}"))
+            .collect();
+        format!(
+            "radio://{}/0/2M/{address}?safelink=0&ackfilter=0",
+            self.radio
+        )
     }
 
     /// It failed and stays in its bootloader, saying where that is
     fn fail(&mut self, reason: String) -> Outcome {
         let uri = self.bootloader_uri();
         let address = uri.split('?').next().unwrap_or_default();
-        Outcome { result: Err(format!("{reason}; left in its bootloader at {address}")), reconnect: false }
+        Outcome {
+            result: Err(format!("{reason}; left in its bootloader at {address}")),
+            reconnect: false,
+        }
     }
 
     /// Restart it into its firmware with `result`, or fail if it doesn't
     /// restart. Restarted ones are noted in `restarted`, to check that they
     /// left their bootloader
-    async fn restart(&mut self, result: Result<String, String>, restarted: &mut Vec<(usize, String)>) -> Outcome {
+    async fn restart(
+        &mut self,
+        result: Result<String, String>,
+        restarted: &mut Vec<(usize, String)>,
+    ) -> Outcome {
         match self.loader.reset_to_firmware().await {
             Ok(()) => {
                 restarted.push((self.index, self.bootloader_uri()));
@@ -197,7 +219,8 @@ impl Session {
     fn too_big<'i>(&self, images: &'i [Image]) -> Option<&'i Image> {
         images.iter().find(|image| {
             let info = self.info(image.target);
-            let capacity = info.n_flash_page().saturating_sub(info.flash_start()) as usize * info.page_size() as usize;
+            let capacity = info.n_flash_page().saturating_sub(info.flash_start()) as usize
+                * info.page_size() as usize;
             image.start.is_none() && image.data.len() > capacity
         })
     }
@@ -234,13 +257,19 @@ impl Server {
         }
         for (n, uri) in uris.iter().enumerate() {
             if !uri.key.starts_with("radio:///") {
-                return Err(format!("{} can't be flashed: only Crazyflies reached by radio can", uri.key));
+                return Err(format!(
+                    "{} can't be flashed: only Crazyflies reached by radio can",
+                    uri.key
+                ));
             }
             if uris[..n].iter().any(|other| other.key == uri.key) {
                 return Err(format!("{} is listed twice", uri.key));
             }
         }
-        let reasons: Vec<String> = uris.iter().map(|uri| format!("{} is being flashed by {who}", uri.key)).collect();
+        let reasons: Vec<String> = uris
+            .iter()
+            .map(|uri| format!("{} is being flashed by {who}", uri.key))
+            .collect();
         for (n, (uri, reason)) in uris.iter().zip(&reasons).enumerate() {
             if let Err(e) = self.mark_busy(&uri.key, reason.clone()) {
                 for marked in &uris[..n] {
@@ -250,7 +279,10 @@ impl Server {
             }
         }
         for (uri, reason) in uris.iter().zip(reasons) {
-            self.announce(Event::Busy { uri: uri.key.clone(), reason });
+            self.announce(Event::Busy {
+                uri: uri.key.clone(),
+                reason,
+            });
         }
         let server = self.clone();
         let reporter = Reporter { tx, sub };
@@ -263,10 +295,17 @@ impl Server {
                 async move {
                     let connected = outcome.reconnect && server.reconnect(&uri).await;
                     server.unmark_busy(&uri.key);
-                    server.announce(Event::Available { uri: uri.key.clone(), connected, moved_to: None });
+                    server.announce(Event::Available {
+                        uri: uri.key.clone(),
+                        connected,
+                        moved_to: None,
+                    });
                     reporter.send(match outcome.result {
                         Ok(how) => Event::Flashed { uri: uri.key, how },
-                        Err(reason) => Event::FlashFailed { uri: uri.key, reason },
+                        Err(reason) => Event::FlashFailed {
+                            uri: uri.key,
+                            reason,
+                        },
                     });
                 }
             }))
@@ -277,7 +316,12 @@ impl Server {
     }
 
     /// Flash every Crazyflie of a job. Returns an outcome for each, in order
-    async fn flash(&self, uris: &[NormalizedUri], images: &[Image], reporter: &Reporter) -> Vec<Outcome> {
+    async fn flash(
+        &self,
+        uris: &[NormalizedUri],
+        images: &[Image],
+        reporter: &Reporter,
+    ) -> Vec<Outcome> {
         let context = &self.inner.link_context;
         let mut outcomes: Vec<Option<Outcome>> = uris.iter().map(|_| None).collect();
 
@@ -287,7 +331,13 @@ impl Server {
         for uri in uris {
             let was_on = self.take_offline(&uri.key, "Being flashed").await;
             was_connected.push(was_on.is_some());
-            radios.push(self.pick_radio(was_on.flatten().or(uri.radio), uri.channel().unwrap_or_default()).await);
+            radios.push(
+                self.pick_radio(
+                    was_on.flatten().or(uri.radio),
+                    uri.channel().unwrap_or_default(),
+                )
+                .await,
+            );
         }
 
         // Into the bootloader, a few Crazyflies per Crazyradio at a time
@@ -303,7 +353,9 @@ impl Server {
                 let _turn = turns[&radio].acquire().await.map_err(|e| e.to_string())?;
                 reporter.progress(Some(&uri.key), "Restarting into the bootloader", 0, 1);
                 let path = uri.key.trim_start_matches("radio:///");
-                let address = enter_bootloader(context, &format!("radio://{radio}/{path}?safelink=0")).await?;
+                let address =
+                    enter_bootloader(context, &format!("radio://{radio}/{path}?safelink=0"))
+                        .await?;
                 Ok::<_, String>((radio, address))
             }
         }))
@@ -317,7 +369,10 @@ impl Server {
                 Ok((radio, address)) => in_bootloader.push((index, radio, address)),
                 Err(e) => {
                     let result = Err(format!("Restarting into the bootloader: {e}"));
-                    outcomes[index] = Some(Outcome { result, reconnect: was_connected[index] });
+                    outcomes[index] = Some(Outcome {
+                        result,
+                        reconnect: was_connected[index],
+                    });
                 }
             }
         }
@@ -329,13 +384,21 @@ impl Server {
             let slot = self.pick_radio(Some(radio), 0).await.ok();
             match bootloader_radio(context, radio).await {
                 Ok(shared) => {
-                    let sessions = open_sessions(shared, radio, uris, in_bootloader, reporter, &mut outcomes).await;
-                    self.flash_sessions(sessions, images, reporter, &mut outcomes, &mut restarted).await;
+                    let sessions =
+                        open_sessions(shared, radio, uris, in_bootloader, reporter, &mut outcomes)
+                            .await;
+                    self.flash_sessions(sessions, images, reporter, &mut outcomes, &mut restarted)
+                        .await;
                 }
                 Err(e) => {
                     for (index, _, _) in in_bootloader {
-                        let reason = format!("In the bootloader, but the Crazyradio couldn't be opened: {e}");
-                        outcomes[index] = Some(Outcome { result: Err(reason), reconnect: false });
+                        let reason = format!(
+                            "In the bootloader, but the Crazyradio couldn't be opened: {e}"
+                        );
+                        outcomes[index] = Some(Outcome {
+                            result: Err(reason),
+                            reconnect: false,
+                        });
                     }
                 }
             }
@@ -347,15 +410,28 @@ impl Server {
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
         for (index, bootloader_uri) in restarted {
-            reporter.progress(Some(&uris[index].key), "Checking that it left the bootloader", 0, 1);
+            reporter.progress(
+                Some(&uris[index].key),
+                "Checking that it left the bootloader",
+                0,
+                1,
+            );
             if !left_bootloader(context, &bootloader_uri).await {
                 let address = bootloader_uri.split('?').next().unwrap_or_default();
-                let reason = format!("It is still in its bootloader, at {address}. Restart it with its power button");
-                outcomes[index] = Some(Outcome { result: Err(reason), reconnect: false });
+                let reason = format!(
+                    "It is still in its bootloader, at {address}. Restart it with its power button"
+                );
+                outcomes[index] = Some(Outcome {
+                    result: Err(reason),
+                    reconnect: false,
+                });
             }
         }
 
-        outcomes.into_iter().map(|outcome| outcome.expect("an outcome for every Crazyflie")).collect()
+        outcomes
+            .into_iter()
+            .map(|outcome| outcome.expect("an outcome for every Crazyflie"))
+            .collect()
     }
 
     /// Flash the Crazyflies in their bootloaders: by broadcast where they take
@@ -372,26 +448,38 @@ impl Server {
         let mut unicast = Vec::new();
         for mut session in sessions {
             if let Some(image) = session.too_big(images) {
-                let error = format!("The {} image doesn't fit in the flash ({} bytes)", image.target.name(), image.data.len());
+                let error = format!(
+                    "The {} image doesn't fit in the flash ({} bytes)",
+                    image.target.name(),
+                    image.data.len()
+                );
                 outcomes[session.index] = Some(session.restart(Err(error), restarted).await);
-            } else if session.takes_broadcast() && group.first().is_none_or(|first| first.layout() == session.layout()) {
+            } else if session.takes_broadcast()
+                && group
+                    .first()
+                    .is_none_or(|first| first.layout() == session.layout())
+            {
                 group.push(session);
             } else {
                 unicast.push(session);
             }
         }
         if group.len() >= MIN_BROADCAST {
-            unicast.extend(self.broadcast(group, images, reporter, outcomes, restarted).await);
+            unicast.extend(
+                self.broadcast(group, images, reporter, outcomes, restarted)
+                    .await,
+            );
         } else {
             unicast.append(&mut group);
         }
 
         unicast.sort_by_key(|session| session.index);
         for mut session in unicast {
-            outcomes[session.index] = Some(match flash_unicast(&mut session, images, reporter).await {
-                Ok(how) => session.restart(Ok(how), restarted).await,
-                Err(reason) => session.fail(reason),
-            });
+            outcomes[session.index] =
+                Some(match flash_unicast(&mut session, images, reporter).await {
+                    Ok(how) => session.restart(Ok(how), restarted).await,
+                    Err(reason) => session.fail(reason),
+                });
         }
     }
 
@@ -419,7 +507,10 @@ impl Server {
             match session.loader.set_broadcast_address(&address).await {
                 Ok(()) => armed.push(session),
                 Err(e) => {
-                    warn!("{}: couldn't arm it for broadcast, flashing it over unicast: {e:#}", session.key);
+                    warn!(
+                        "{}: couldn't arm it for broadcast, flashing it over unicast: {e:#}",
+                        session.key
+                    );
                     rest.push(session);
                 }
             }
@@ -431,12 +522,22 @@ impl Server {
 
         for image in images {
             let start = armed[0].start(image);
-            let step = format!("Broadcasting {} to {} Crazyflies", image.target.name(), armed.len());
+            let step = format!(
+                "Broadcasting {} to {} Crazyflies",
+                image.target.name(),
+                armed.len()
+            );
             let progress = reporter.clone();
-            let callback = move |done: usize, total: usize| progress.progress(None, &step, done, total);
+            let callback =
+                move |done: usize, total: usize| progress.progress(None, &step, done, total);
             let sent = armed[0]
                 .loader
-                .broadcast_flash_image_with_progress(image.target.id(), start, &image.data, Some(callback))
+                .broadcast_flash_image_with_progress(
+                    image.target.id(),
+                    start,
+                    &image.data,
+                    Some(callback),
+                )
                 .await;
             if let Err(e) = sent {
                 let reason = format!("Broadcasting the {} image: {e:#}", image.target.name());
@@ -462,7 +563,11 @@ impl Server {
                 }
             }
             outcomes[session.index] = Some(match checked {
-                Ok(()) => session.restart(Ok(how("broadcast", fixed)), restarted).await,
+                Ok(()) => {
+                    session
+                        .restart(Ok(how("broadcast", fixed)), restarted)
+                        .await
+                }
                 Err(reason) => session.fail(reason),
             });
         }
@@ -512,11 +617,21 @@ async fn open_sessions(
         }
         .await;
         match opened {
-            Ok(loader) => sessions.push(Session { index, key, radio, loader }),
+            Ok(loader) => sessions.push(Session {
+                index,
+                key,
+                radio,
+                loader,
+            }),
             Err(e) => {
                 let address: String = address.iter().map(|b| format!("{b:02X}")).collect();
-                let reason = format!("Its bootloader didn't answer ({e:#}); left in it at radio://{radio}/0/2M/{address}");
-                outcomes[index] = Some(Outcome { result: Err(reason), reconnect: false });
+                let reason = format!(
+                    "Its bootloader didn't answer ({e:#}); left in it at radio://{radio}/0/2M/{address}"
+                );
+                outcomes[index] = Some(Outcome {
+                    result: Err(reason),
+                    reconnect: false,
+                });
             }
         }
     }
@@ -525,13 +640,18 @@ async fn open_sessions(
 
 /// Flash the images to one Crazyflie over unicast, and check them by CRC
 /// where the bootloader can
-async fn flash_unicast(session: &mut Session, images: &[Image], reporter: &Reporter) -> Result<String, String> {
+async fn flash_unicast(
+    session: &mut Session,
+    images: &[Image],
+    reporter: &Reporter,
+) -> Result<String, String> {
     let mut fixed = 0;
     for image in images {
         let start = session.start(image);
         let (progress, key) = (reporter.clone(), session.key.clone());
         let step = format!("Flashing {}", image.target.name());
-        let callback = move |done: usize, total: usize| progress.progress(Some(&key), &step, done, total);
+        let callback =
+            move |done: usize, total: usize| progress.progress(Some(&key), &step, done, total);
         session
             .loader
             .flash_image_with_progress(image.target.id(), start, &image.data, Some(callback))
@@ -549,8 +669,10 @@ async fn flash_unicast(session: &mut Session, images: &[Image], reporter: &Repor
 /// again, up to [FIX_ATTEMPTS] times. Returns how many pages were flashed again
 async fn verify_and_fix(loader: &mut CFLoader, image: &Image, start: u32) -> Result<usize, String> {
     let (target, name) = (image.target.id(), image.target.name());
-    let mut failed =
-        loader.verify_flash_crc(target, start, &image.data).await.map_err(|e| format!("Checking the {name}: {e:#}"))?;
+    let mut failed = loader
+        .verify_flash_crc(target, start, &image.data)
+        .await
+        .map_err(|e| format!("Checking the {name}: {e:#}"))?;
     let mut fixed = 0;
     for _ in 0..FIX_ATTEMPTS {
         if failed.is_empty() {
@@ -561,8 +683,10 @@ async fn verify_and_fix(loader: &mut CFLoader, image: &Image, start: u32) -> Res
             .await
             .map_err(|e| format!("Flashing {} pages of the {name} again: {e:#}", failed.len()))?;
         fixed += failed.len();
-        failed =
-            loader.verify_flash_crc(target, start, &image.data).await.map_err(|e| format!("Checking the {name}: {e:#}"))?;
+        failed = loader
+            .verify_flash_crc(target, start, &image.data)
+            .await
+            .map_err(|e| format!("Checking the {name}: {e:#}"))?;
     }
     if !failed.is_empty() {
         return Err(format!(
@@ -577,7 +701,10 @@ async fn verify_and_fix(loader: &mut CFLoader, image: &Image, start: u32) -> Res
 /// link without safelink, and return the address the bootloader listens on
 /// (on channel 0). The same sequence as cfcli's `enter_bootloader_for_cfloader`
 async fn enter_bootloader(context: &LinkContext, link_uri: &str) -> Result<[u8; 5], String> {
-    let link = context.open_link(link_uri).await.map_err(|e| format!("no answer ({e})"))?;
+    let link = context
+        .open_link(link_uri)
+        .await
+        .map_err(|e| format!("no answer ({e})"))?;
     let address = reset_and_get_bootloader_address(&link).await;
     link.close().await;
     address
@@ -647,5 +774,7 @@ async fn bootloader_answers(context: &LinkContext, bootloader_uri: &str) -> bool
 
 async fn send(link: &Connection, data: Vec<u8>) -> Result<(), String> {
     let packet: Packet = data.into();
-    link.send_packet(packet).await.map_err(|e| format!("no answer ({e})"))
+    link.send_packet(packet)
+        .await
+        .map_err(|e| format!("no answer ({e})"))
 }

@@ -2,12 +2,12 @@
 
 use super::flash::{Image, Target};
 use super::{CfEntry, Server, memory, parse_address};
+use crazyflie_connection_protocol::{
+    ClientMessage, DEFAULT_ADDRESS, Event, LinkStatistics, PersistentParamState, Request, Response,
+    ServerMessage, normalize_uri,
+};
 use crazyflie_lib::Crazyflie;
 use crazyflie_lib::subsystems::log::{LogPeriod, LogStream};
-use crazyflie_connection_protocol::{
-    ClientMessage, DEFAULT_ADDRESS, Event, LinkStatistics, PersistentParamState, Request, Response, ServerMessage,
-    normalize_uri,
-};
 use futures::{Stream, StreamExt};
 use log::debug;
 use std::collections::{HashMap, HashSet};
@@ -68,12 +68,24 @@ impl Session {
             let id = message.id;
             let tx = shared.tx.clone();
             // A request that panics (e.g. in crazyflie-link) still gets a reply
-            let handled = tokio::spawn(async move { dispatch(&server, &shared, message.request).await }).await;
-            let reply = match handled.unwrap_or_else(|e| Err(format!("The server failed on this request: {e}"))) {
-                Ok(response) => ServerMessage::Reply { id, ok: Some(response), error: None },
+            let handled =
+                tokio::spawn(async move { dispatch(&server, &shared, message.request).await })
+                    .await;
+            let reply = match handled
+                .unwrap_or_else(|e| Err(format!("The server failed on this request: {e}")))
+            {
+                Ok(response) => ServerMessage::Reply {
+                    id,
+                    ok: Some(response),
+                    error: None,
+                },
                 Err(error) => {
                     debug!("Request {id} failed: {error}");
-                    ServerMessage::Reply { id, ok: None, error: Some(error) }
+                    ServerMessage::Reply {
+                        id,
+                        ok: None,
+                        error: Some(error),
+                    }
                 }
             };
             let _ = tx.send(reply);
@@ -82,7 +94,11 @@ impl Session {
 
     /// Send an error reply for a message that could not be parsed
     pub fn reject(&self, id: u64, error: String) {
-        let _ = self.shared.tx.send(ServerMessage::Reply { id, ok: None, error: Some(error) });
+        let _ = self.shared.tx.send(ServerMessage::Reply {
+            id,
+            ok: None,
+            error: Some(error),
+        });
     }
 }
 
@@ -107,13 +123,22 @@ impl SessionShared {
     pub(crate) fn crazyflie_lost(&self, key: &str, reason: &str) {
         self.attached.lock().unwrap().remove(key);
         self.subs.lock().unwrap().retain(|_, sub| sub.key != key);
-        let _ = self.tx.send(ServerMessage::Disconnected { uri: key.to_owned(), reason: reason.to_owned() });
+        let _ = self.tx.send(ServerMessage::Disconnected {
+            uri: key.to_owned(),
+            reason: reason.to_owned(),
+        });
     }
 
     /// Register stream `sub` and return its cancel receiver. An existing stream with the same number is closed
     fn add_sub(&self, sub: u64, key: &str) -> oneshot::Receiver<()> {
         let (cancel, cancelled) = oneshot::channel();
-        self.subs.lock().unwrap().insert(sub, Sub { key: key.to_owned(), _cancel: cancel });
+        self.subs.lock().unwrap().insert(
+            sub,
+            Sub {
+                key: key.to_owned(),
+                _cancel: cancel,
+            },
+        );
         cancelled
     }
 }
@@ -124,14 +149,20 @@ fn attached(server: &Server, session: &SessionShared, uri: &str) -> Result<Arc<C
     if !session.attached.lock().unwrap().contains(&key) {
         return Err(format!("Not attached to {key}"));
     }
-    server.entry(&key).ok_or_else(|| format!("{key} is not connected"))
+    server
+        .entry(&key)
+        .ok_or_else(|| format!("{key} is not connected"))
 }
 
 fn lib_error(e: crazyflie_lib::Error) -> String {
     e.to_string()
 }
 
-async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Request) -> Result<Response, String> {
+async fn dispatch(
+    server: &Server,
+    session: &Arc<SessionShared>,
+    request: Request,
+) -> Result<Response, String> {
     if let Some(uri) = memory::uri_of(&request) {
         let entry = attached(server, session, uri)?;
         return memory::handle(&entry, request).await;
@@ -140,17 +171,29 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
         Request::Hello { name } => {
             *session.name.lock().unwrap() = name.clone();
             server.rename_client(session.id, &name);
-            Ok(Response::Hello { server: server.name().to_owned(), protocol: crazyflie_connection_protocol::PROTOCOL_VERSION })
+            Ok(Response::Hello {
+                server: server.name().to_owned(),
+                protocol: crazyflie_connection_protocol::PROTOCOL_VERSION,
+            })
         }
         Request::Scan { address } => {
             let address = parse_address(address.as_deref().unwrap_or(DEFAULT_ADDRESS))?;
-            Ok(Response::Scan { found: server.scan(address).await? })
+            Ok(Response::Scan {
+                found: server.scan(address).await?,
+            })
         }
         Request::ScanSelected { uris } => {
-            let uris = uris.iter().map(|uri| normalize_uri(uri)).collect::<Result<Vec<_>, String>>()?;
-            Ok(Response::Scan { found: server.scan_selected(&uris).await })
+            let uris = uris
+                .iter()
+                .map(|uri| normalize_uri(uri))
+                .collect::<Result<Vec<_>, String>>()?;
+            Ok(Response::Scan {
+                found: server.scan_selected(&uris).await,
+            })
         }
-        Request::List => Ok(Response::List { connected: server.list() }),
+        Request::List => Ok(Response::List {
+            connected: server.list(),
+        }),
         Request::Attach { uri } => {
             let uri = normalize_uri(&uri)?;
             let entry = server.attach(session.id, &session.name(), &uri).await?;
@@ -176,16 +219,33 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
         }
         Request::ParamSet { uri, name, value } => {
             let entry = attached(server, session, &uri)?;
-            entry.cf.param.set_lossy(&name, value).await.map_err(lib_error)?;
+            entry
+                .cf
+                .param
+                .set_lossy(&name, value)
+                .await
+                .map_err(lib_error)?;
             Ok(Response::Done)
         }
         Request::ParamIsPersistent { uri, name } => {
             let entry = attached(server, session, &uri)?;
-            Ok(Response::Bool { value: entry.cf.param.is_persistent(&name).await.map_err(lib_error)? })
+            Ok(Response::Bool {
+                value: entry
+                    .cf
+                    .param
+                    .is_persistent(&name)
+                    .await
+                    .map_err(lib_error)?,
+            })
         }
         Request::ParamPersistentState { uri, name } => {
             let entry = attached(server, session, &uri)?;
-            let state = entry.cf.param.persistent_get_state(&name).await.map_err(lib_error)?;
+            let state = entry
+                .cf
+                .param
+                .persistent_get_state(&name)
+                .await
+                .map_err(lib_error)?;
             Ok(Response::PersistentState(PersistentParamState {
                 is_stored: state.is_stored,
                 default_value: state.default_value.to_f64_lossy(),
@@ -194,22 +254,40 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
         }
         Request::ParamPersistentStore { uri, name } => {
             let entry = attached(server, session, &uri)?;
-            entry.cf.param.persistent_store(&name).await.map_err(lib_error)?;
+            entry
+                .cf
+                .param
+                .persistent_store(&name)
+                .await
+                .map_err(lib_error)?;
             Ok(Response::Done)
         }
         Request::ParamPersistentClear { uri, name } => {
             let entry = attached(server, session, &uri)?;
-            entry.cf.param.persistent_clear(&name).await.map_err(lib_error)?;
+            entry
+                .cf
+                .param
+                .persistent_clear(&name)
+                .await
+                .map_err(lib_error)?;
             Ok(Response::Done)
         }
         Request::ParamWatch { uri, sub } => {
             let entry = attached(server, session, &uri)?;
             let changes = entry.cf.param.watch_change().await.map_err(lib_error)?;
-            let events = changes.map(|(name, value)| Event::ParamChanged { name, value: value.to_f64_lossy() });
+            let events = changes.map(|(name, value)| Event::ParamChanged {
+                name,
+                value: value.to_f64_lossy(),
+            });
             forward(session, &entry, sub, events);
             Ok(Response::Done)
         }
-        Request::LogSubscribe { uri, sub, vars, period_ms } => {
+        Request::LogSubscribe {
+            uri,
+            sub,
+            vars,
+            period_ms,
+        } => {
             let entry = attached(server, session, &uri)?;
             log_subscribe(session, &entry, sub, &vars, period_ms).await?;
             Ok(Response::Done)
@@ -217,7 +295,12 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
         Request::ConsoleSubscribe { uri, sub, history } => {
             let entry = attached(server, session, &uri)?;
             let lines = entry.console.subscribe(history);
-            forward(session, &entry, sub, lines.map(|line| Event::Console { line }));
+            forward(
+                session,
+                &entry,
+                sub,
+                lines.map(|line| Event::Console { line }),
+            );
             Ok(Response::Done)
         }
         Request::LighthouseAngleSubscribe { uri, sub } => {
@@ -235,22 +318,59 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
             session.subs.lock().unwrap().remove(&sub);
             Ok(Response::Done)
         }
-        Request::TakeOff { uri, height, yaw, duration, group_mask } => {
+        Request::TakeOff {
+            uri,
+            height,
+            yaw,
+            duration,
+            group_mask,
+        } => {
             let entry = attached(server, session, &uri)?;
-            entry.cf.high_level_commander.take_off(height, yaw, duration, group_mask).await.map_err(lib_error)?;
+            entry
+                .cf
+                .high_level_commander
+                .take_off(height, yaw, duration, group_mask)
+                .await
+                .map_err(lib_error)?;
             Ok(Response::Done)
         }
-        Request::Land { uri, height, yaw, duration, group_mask } => {
+        Request::Land {
+            uri,
+            height,
+            yaw,
+            duration,
+            group_mask,
+        } => {
             let entry = attached(server, session, &uri)?;
-            entry.cf.high_level_commander.land(height, yaw, duration, group_mask).await.map_err(lib_error)?;
+            entry
+                .cf
+                .high_level_commander
+                .land(height, yaw, duration, group_mask)
+                .await
+                .map_err(lib_error)?;
             Ok(Response::Done)
         }
         Request::Stop { uri, group_mask } => {
             let entry = attached(server, session, &uri)?;
-            entry.cf.high_level_commander.stop(group_mask).await.map_err(lib_error)?;
+            entry
+                .cf
+                .high_level_commander
+                .stop(group_mask)
+                .await
+                .map_err(lib_error)?;
             Ok(Response::Done)
         }
-        Request::GoTo { uri, x, y, z, yaw, duration, relative, linear, group_mask } => {
+        Request::GoTo {
+            uri,
+            x,
+            y,
+            z,
+            yaw,
+            duration,
+            relative,
+            linear,
+            group_mask,
+        } => {
             let entry = attached(server, session, &uri)?;
             entry
                 .cf
@@ -260,7 +380,13 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
                 .map_err(lib_error)?;
             Ok(Response::Done)
         }
-        Request::DefineTrajectory { uri, id, memory_offset, num_pieces, trajectory_type } => {
+        Request::DefineTrajectory {
+            uri,
+            id,
+            memory_offset,
+            num_pieces,
+            trajectory_type,
+        } => {
             let entry = attached(server, session, &uri)?;
             entry
                 .cf
@@ -270,44 +396,96 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
                 .map_err(lib_error)?;
             Ok(Response::Done)
         }
-        Request::StartTrajectory { uri, id, time_scale, relative_position, relative_yaw, reversed, group_mask } => {
+        Request::StartTrajectory {
+            uri,
+            id,
+            time_scale,
+            relative_position,
+            relative_yaw,
+            reversed,
+            group_mask,
+        } => {
             let entry = attached(server, session, &uri)?;
             entry
                 .cf
                 .high_level_commander
-                .start_trajectory(id, time_scale, relative_position, relative_yaw, reversed, group_mask)
+                .start_trajectory(
+                    id,
+                    time_scale,
+                    relative_position,
+                    relative_yaw,
+                    reversed,
+                    group_mask,
+                )
                 .await
                 .map_err(lib_error)?;
             Ok(Response::Done)
         }
-        Request::SetpointRpyt { uri, roll, pitch, yawrate, thrust } => {
+        Request::SetpointRpyt {
+            uri,
+            roll,
+            pitch,
+            yawrate,
+            thrust,
+        } => {
             let entry = attached(server, session, &uri)?;
-            entry.cf.commander.setpoint_rpyt(roll, pitch, yawrate, thrust).await.map_err(lib_error)?;
+            entry
+                .cf
+                .commander
+                .setpoint_rpyt(roll, pitch, yawrate, thrust)
+                .await
+                .map_err(lib_error)?;
             Ok(Response::Done)
         }
-        Request::NotifySetpointStop { uri, remain_valid_ms } => {
+        Request::NotifySetpointStop {
+            uri,
+            remain_valid_ms,
+        } => {
             let entry = attached(server, session, &uri)?;
-            entry.cf.commander.notify_setpoint_stop(remain_valid_ms).await.map_err(lib_error)?;
+            entry
+                .cf
+                .commander
+                .notify_setpoint_stop(remain_valid_ms)
+                .await
+                .map_err(lib_error)?;
             Ok(Response::Done)
         }
         Request::ArmingRequest { uri, arm } => {
             let entry = attached(server, session, &uri)?;
-            entry.cf.supervisor.send_arming_request(arm).await.map_err(lib_error)?;
+            entry
+                .cf
+                .supervisor
+                .send_arming_request(arm)
+                .await
+                .map_err(lib_error)?;
             Ok(Response::Done)
         }
         Request::EmergencyStop { uri } => {
             let entry = attached(server, session, &uri)?;
-            entry.cf.supervisor.send_emergency_stop().await.map_err(lib_error)?;
+            entry
+                .cf
+                .supervisor
+                .send_emergency_stop()
+                .await
+                .map_err(lib_error)?;
             Ok(Response::Done)
         }
         Request::CrashRecovery { uri } => {
             let entry = attached(server, session, &uri)?;
-            entry.cf.supervisor.send_crash_recovery_request().await.map_err(lib_error)?;
+            entry
+                .cf
+                .supervisor
+                .send_crash_recovery_request()
+                .await
+                .map_err(lib_error)?;
             Ok(Response::Done)
         }
         Request::Flash { uris, sub, images } => {
             use base64::Engine as _;
-            let uris = uris.iter().map(|uri| normalize_uri(uri)).collect::<Result<Vec<_>, String>>()?;
+            let uris = uris
+                .iter()
+                .map(|uri| normalize_uri(uri))
+                .collect::<Result<Vec<_>, String>>()?;
             let images = images
                 .into_iter()
                 .map(|image| {
@@ -329,13 +507,26 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
         }
         Request::SendShortLppPacket { uri, dest_id, data } => {
             let entry = attached(server, session, &uri)?;
-            entry.cf.localization.loco_positioning.send_short_lpp_packet(dest_id, &data).await.map_err(lib_error)?;
+            entry
+                .cf
+                .localization
+                .loco_positioning
+                .send_short_lpp_packet(dest_id, &data)
+                .await
+                .map_err(lib_error)?;
             Ok(Response::Done)
         }
-        Request::LighthousePersist { uri, geometries, calibrations } => {
+        Request::LighthousePersist {
+            uri,
+            geometries,
+            calibrations,
+        } => {
             let entry = attached(server, session, &uri)?;
             let lighthouse = &entry.cf.localization.lighthouse;
-            let persisted = lighthouse.persist_lighthouse_data(&geometries, &calibrations).await.map_err(lib_error)?;
+            let persisted = lighthouse
+                .persist_lighthouse_data(&geometries, &calibrations)
+                .await
+                .map_err(lib_error)?;
             Ok(Response::Bool { value: persisted })
         }
         // Handled above
@@ -352,9 +543,20 @@ async fn dispatch(server: &Server, session: &Arc<SessionShared>, request: Reques
         | Request::TrajectoryWriteCompressed { .. }
         | Request::LocoReadIdList { .. }
         | Request::LocoReadAnchor { .. } => unreachable!("a memory request"),
-        Request::Platform { uri, command, new_uri } => {
+        Request::Platform {
+            uri,
+            command,
+            new_uri,
+        } => {
             let new_uri = new_uri.as_deref().map(normalize_uri).transpose()?;
-            server.platform(&normalize_uri(&uri)?, command, new_uri.as_ref(), &session.name()).await?;
+            server
+                .platform(
+                    &normalize_uri(&uri)?,
+                    command,
+                    new_uri.as_ref(),
+                    &session.name(),
+                )
+                .await?;
             Ok(Response::Done)
         }
         Request::LinkStatistics { uri } => {
@@ -381,7 +583,11 @@ enum End {
 
 /// Forward the server's [Event::Busy] and [Event::Available] to the client as
 /// stream `sub` until it is cancelled
-fn watch(session: &Arc<SessionShared>, sub: u64, mut events: tokio::sync::broadcast::Receiver<Event>) {
+fn watch(
+    session: &Arc<SessionShared>,
+    sub: u64,
+    mut events: tokio::sync::broadcast::Receiver<Event>,
+) {
     use tokio::sync::broadcast::error::RecvError;
     // Not tied to a Crazyflie: it stays open when one is lost
     let mut cancelled = session.add_sub(sub, "");
@@ -431,7 +637,10 @@ where
             }
         };
         if let End::Ended(reason) = end {
-            let _ = tx.send(ServerMessage::Event { sub, event: Event::Ended { reason } });
+            let _ = tx.send(ServerMessage::Event {
+                sub,
+                event: Event::Ended { reason },
+            });
         }
     });
 }
@@ -487,7 +696,10 @@ async fn log_subscribe(
         match end {
             End::Cancelled => stop_blocks(streams).await,
             End::Ended(reason) => {
-                let _ = tx.send(ServerMessage::Event { sub, event: Event::Ended { reason } });
+                let _ = tx.send(ServerMessage::Event {
+                    sub,
+                    event: Event::Ended { reason },
+                });
             }
         }
     });

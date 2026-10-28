@@ -12,8 +12,8 @@ use crazyflie_connection_protocol as protocol;
 use crazyflie_connection_protocol::{MemoryInfo, Request, Response};
 use crazyflie_lib::Crazyflie;
 use crazyflie_lib::subsystems::memory::{
-    self as mem, EEPROMConfigMemory, FromMemoryBackend, LighthouseMemory, LocoMemory2, MemoryDevice, OwMemory,
-    RadioSpeed, RawMemory, TrajectoryMemory,
+    self as mem, EEPROMConfigMemory, FromMemoryBackend, LighthouseMemory, LocoMemory2,
+    MemoryDevice, OwMemory, RadioSpeed, RawMemory, TrajectoryMemory,
 };
 
 /// The memory list of a Crazyflie, for its attach info
@@ -25,7 +25,10 @@ pub(super) fn memories(cf: &Crazyflie) -> Vec<MemoryInfo> {
             id: device.memory_id,
             memory_type: memory_type(&device.memory_type),
             size: device.size,
-            serial: device.serial.as_ref().map(|serial| serial.iter().map(|b| format!("{b:02X}")).collect()),
+            serial: device
+                .serial
+                .as_ref()
+                .map(|serial| serial.iter().map(|b| format!("{b:02X}")).collect()),
         })
         .collect()
 }
@@ -78,13 +81,28 @@ pub(super) async fn handle(entry: &CfEntry, request: Request) -> Result<Response
     let _turn = entry.memory_turn.lock().await;
     let cf = &entry.cf;
     match request {
-        Request::MemoryRead { id, address, length, .. } => {
-            let data = with::<RawMemory, _>(cf, id, async |raw| raw.read(address as usize, length as usize).await).await?;
-            Ok(Response::Data { data: base64::engine::general_purpose::STANDARD.encode(data) })
+        Request::MemoryRead {
+            id,
+            address,
+            length,
+            ..
+        } => {
+            let data = with::<RawMemory, _>(cf, id, async |raw| {
+                raw.read(address as usize, length as usize).await
+            })
+            .await?;
+            Ok(Response::Data {
+                data: base64::engine::general_purpose::STANDARD.encode(data),
+            })
         }
-        Request::MemoryWrite { id, address, data, .. } => {
-            let data = base64::engine::general_purpose::STANDARD.decode(&data).map_err(|e| format!("The data isn't base64: {e}"))?;
-            with::<RawMemory, _>(cf, id, async |raw| raw.write(address as usize, &data).await).await?;
+        Request::MemoryWrite {
+            id, address, data, ..
+        } => {
+            let data = base64::engine::general_purpose::STANDARD
+                .decode(&data)
+                .map_err(|e| format!("The data isn't base64: {e}"))?;
+            with::<RawMemory, _>(cf, id, async |raw| raw.write(address as usize, &data).await)
+                .await?;
             Ok(Response::Done)
         }
         Request::OneWireRead { id, .. } => {
@@ -93,7 +111,11 @@ pub(super) async fn handle(entry: &CfEntry, request: Request) -> Result<Response
                     used_pins: ow.used_pins(),
                     vid: ow.vid(),
                     pid: ow.pid(),
-                    elements: ow.elements().iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+                    elements: ow
+                        .elements()
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect(),
                 })
             })
             .await?;
@@ -104,7 +126,11 @@ pub(super) async fn handle(entry: &CfEntry, request: Request) -> Result<Response
                 Ok(protocol::EepromConfig {
                     radio_channel: eeprom.get_radio_channel(),
                     radio_speed: eeprom.get_radio_speed().clone() as u8,
-                    radio_address: eeprom.get_radio_address().iter().map(|b| format!("{b:02X}")).collect(),
+                    radio_address: eeprom
+                        .get_radio_address()
+                        .iter()
+                        .map(|b| format!("{b:02X}"))
+                        .collect(),
                     pitch_trim: eeprom.get_pitch_trim(),
                     roll_trim: eeprom.get_roll_trim(),
                 })
@@ -130,68 +156,105 @@ pub(super) async fn handle(entry: &CfEntry, request: Request) -> Result<Response
             Ok(Response::Done)
         }
         Request::LighthouseGeometryRead { id, bs, .. } => {
-            let geometry = with::<LighthouseMemory, _>(cf, id, async |lh| lh.read_geometry(bs).await).await?;
-            Ok(Response::LighthouseGeometry(protocol::LighthouseBsGeometry {
-                origin: geometry.origin,
-                rotation_matrix: geometry.rotation_matrix,
-                valid: geometry.valid,
-            }))
+            let geometry =
+                with::<LighthouseMemory, _>(cf, id, async |lh| lh.read_geometry(bs).await).await?;
+            Ok(Response::LighthouseGeometry(
+                protocol::LighthouseBsGeometry {
+                    origin: geometry.origin,
+                    rotation_matrix: geometry.rotation_matrix,
+                    valid: geometry.valid,
+                },
+            ))
         }
-        Request::LighthouseGeometryWrite { id, bs, geometry, .. } => {
+        Request::LighthouseGeometryWrite {
+            id, bs, geometry, ..
+        } => {
             let geometry = mem::LighthouseBsGeometry {
                 origin: geometry.origin,
                 rotation_matrix: geometry.rotation_matrix,
                 valid: geometry.valid,
             };
-            with::<LighthouseMemory, _>(cf, id, async |lh| lh.write_geometry(bs, &geometry).await).await?;
+            with::<LighthouseMemory, _>(cf, id, async |lh| lh.write_geometry(bs, &geometry).await)
+                .await?;
             Ok(Response::Done)
         }
         Request::LighthouseCalibrationRead { id, bs, .. } => {
-            let calibration = with::<LighthouseMemory, _>(cf, id, async |lh| lh.read_calibration(bs).await).await?;
-            Ok(Response::LighthouseCalibration(protocol::LighthouseBsCalibration {
-                sweeps: calibration.sweeps.map(|sweep| protocol::LighthouseCalibrationSweep {
-                    phase: sweep.phase,
-                    tilt: sweep.tilt,
-                    curve: sweep.curve,
-                    gibmag: sweep.gibmag,
-                    gibphase: sweep.gibphase,
-                    ogeemag: sweep.ogeemag,
-                    ogeephase: sweep.ogeephase,
-                }),
-                uid: calibration.uid,
-                valid: calibration.valid,
-            }))
+            let calibration =
+                with::<LighthouseMemory, _>(cf, id, async |lh| lh.read_calibration(bs).await)
+                    .await?;
+            Ok(Response::LighthouseCalibration(
+                protocol::LighthouseBsCalibration {
+                    sweeps: calibration
+                        .sweeps
+                        .map(|sweep| protocol::LighthouseCalibrationSweep {
+                            phase: sweep.phase,
+                            tilt: sweep.tilt,
+                            curve: sweep.curve,
+                            gibmag: sweep.gibmag,
+                            gibphase: sweep.gibphase,
+                            ogeemag: sweep.ogeemag,
+                            ogeephase: sweep.ogeephase,
+                        }),
+                    uid: calibration.uid,
+                    valid: calibration.valid,
+                },
+            ))
         }
-        Request::LighthouseCalibrationWrite { id, bs, calibration, .. } => {
+        Request::LighthouseCalibrationWrite {
+            id,
+            bs,
+            calibration,
+            ..
+        } => {
             let calibration = mem::LighthouseBsCalibration {
-                sweeps: calibration.sweeps.map(|sweep| mem::LighthouseCalibrationSweep {
-                    phase: sweep.phase,
-                    tilt: sweep.tilt,
-                    curve: sweep.curve,
-                    gibmag: sweep.gibmag,
-                    gibphase: sweep.gibphase,
-                    ogeemag: sweep.ogeemag,
-                    ogeephase: sweep.ogeephase,
-                }),
+                sweeps: calibration
+                    .sweeps
+                    .map(|sweep| mem::LighthouseCalibrationSweep {
+                        phase: sweep.phase,
+                        tilt: sweep.tilt,
+                        curve: sweep.curve,
+                        gibmag: sweep.gibmag,
+                        gibphase: sweep.gibphase,
+                        ogeemag: sweep.ogeemag,
+                        ogeephase: sweep.ogeephase,
+                    }),
                 uid: calibration.uid,
                 valid: calibration.valid,
             };
-            with::<LighthouseMemory, _>(cf, id, async |lh| lh.write_calibration(bs, &calibration).await).await?;
+            with::<LighthouseMemory, _>(cf, id, async |lh| {
+                lh.write_calibration(bs, &calibration).await
+            })
+            .await?;
             Ok(Response::Done)
         }
-        Request::TrajectoryWriteUncompressed { id, start_addr, segments, .. } => {
+        Request::TrajectoryWriteUncompressed {
+            id,
+            start_addr,
+            segments,
+            ..
+        } => {
             let poly = |p: protocol::Poly| mem::Poly::new(p.values);
             let segments: Vec<mem::Poly4D> = segments
                 .into_iter()
                 .map(|s| mem::Poly4D::new(s.duration, poly(s.x), poly(s.y), poly(s.z), poly(s.yaw)))
                 .collect();
             let bytes = with::<TrajectoryMemory, _>(cf, id, async |trajectory| {
-                trajectory.write_uncompressed(&segments, start_addr as usize).await
+                trajectory
+                    .write_uncompressed(&segments, start_addr as usize)
+                    .await
             })
             .await?;
-            Ok(Response::Written { bytes: bytes as u64 })
+            Ok(Response::Written {
+                bytes: bytes as u64,
+            })
         }
-        Request::TrajectoryWriteCompressed { id, start_addr, start, segments, .. } => {
+        Request::TrajectoryWriteCompressed {
+            id,
+            start_addr,
+            start,
+            segments,
+            ..
+        } => {
             let start = mem::CompressedStart::new(start.x, start.y, start.z, start.yaw);
             let segments = segments
                 .into_iter()
@@ -199,21 +262,34 @@ pub(super) async fn handle(entry: &CfEntry, request: Request) -> Result<Response
                 .collect::<crazyflie_lib::Result<Vec<_>>>()
                 .map_err(|e| e.to_string())?;
             let bytes = with::<TrajectoryMemory, _>(cf, id, async |trajectory| {
-                trajectory.write_compressed(&start, &segments, start_addr as usize).await
+                trajectory
+                    .write_compressed(&start, &segments, start_addr as usize)
+                    .await
             })
             .await?;
-            Ok(Response::Written { bytes: bytes as u64 })
+            Ok(Response::Written {
+                bytes: bytes as u64,
+            })
         }
         Request::LocoReadIdList { id, active, .. } => {
             let ids = with::<LocoMemory2, _>(cf, id, async |loco| {
-                if active { loco.read_active_id_list().await } else { loco.read_id_list().await }
+                if active {
+                    loco.read_active_id_list().await
+                } else {
+                    loco.read_id_list().await
+                }
             })
             .await?;
             Ok(Response::Ids { ids })
         }
         Request::LocoReadAnchor { id, anchor, .. } => {
-            let data = with::<LocoMemory2, _>(cf, id, async |loco| loco.read_anchor_data(anchor).await).await?;
-            Ok(Response::LocoAnchor(protocol::LocoAnchorData { position: data.position, is_valid: data.is_valid }))
+            let data =
+                with::<LocoMemory2, _>(cf, id, async |loco| loco.read_anchor_data(anchor).await)
+                    .await?;
+            Ok(Response::LocoAnchor(protocol::LocoAnchorData {
+                position: data.position,
+                is_valid: data.is_valid,
+            }))
         }
         _ => Err("Not a memory request".to_owned()),
     }
