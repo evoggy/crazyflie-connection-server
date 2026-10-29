@@ -318,7 +318,7 @@ dependencies = [
 
 [[package]]
 name = "crazyflie-connection-protocol"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "schemars",
  "serde",
@@ -327,7 +327,7 @@ dependencies = [
 
 [[package]]
 name = "crazyflie-connection-server"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "axum",
  "base64",
