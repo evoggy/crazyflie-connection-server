@@ -100,36 +100,53 @@ impl TocCache for ServerTocCache {
     }
 }
 
-/// A TOC cache that never makes the Crazyflie download a TOC. A miss is
-/// noted and answered with an empty TOC, so the connection finishes right
-/// away (an empty param TOC also skips reading all the values); the caller
-/// then disconnects and connects again to download it, or once it is cached
+/// The TOC cache of one connection. A TOC that isn't cached is claimed in
+/// [TocDownloads] and downloaded, unless another connection is downloading
+/// it: that miss is noted and answered with an empty TOC, so the connection
+/// finishes right away (an empty param TOC also skips reading all the
+/// values), and the caller connects again once the other download is over
 #[derive(Clone)]
 pub(super) struct ProbeCache {
     inner: ServerTocCache,
+    downloads: TocDownloads,
+    claimed: Arc<Mutex<Vec<Downloading>>>,
     missed: Arc<Mutex<Vec<Vec<u8>>>>,
 }
 
 impl ProbeCache {
-    pub(super) fn new(inner: ServerTocCache) -> Self {
+    pub(super) fn new(inner: ServerTocCache, downloads: TocDownloads) -> Self {
         Self {
             inner,
+            downloads,
+            claimed: Arc::default(),
             missed: Arc::default(),
         }
     }
 
-    /// The keys that weren't in the cache
-    pub(super) fn missed(&self) -> Vec<Vec<u8>> {
+    /// End the downloads of this connection, which wakes the connections
+    /// waiting for them, and return the TOCs other connections were
+    /// downloading
+    pub(super) fn finish(&self) -> Vec<Vec<u8>> {
+        self.claimed.lock().unwrap().clear();
         self.missed.lock().unwrap().clone()
     }
 }
 
 impl TocCache for ProbeCache {
     fn get_toc(&self, key: &[u8]) -> Option<String> {
-        TocCache::get_toc(&self.inner, key).or_else(|| {
-            self.missed.lock().unwrap().push(key.to_vec());
-            Some("{}".to_owned())
-        })
+        if let Some(toc) = TocCache::get_toc(&self.inner, key) {
+            return Some(toc);
+        }
+        match self.downloads.claim(&[key.to_vec()]) {
+            Ok(download) => {
+                self.claimed.lock().unwrap().push(download);
+                None
+            }
+            Err(_) => {
+                self.missed.lock().unwrap().push(key.to_vec());
+                Some("{}".to_owned())
+            }
+        }
     }
 
     fn store_toc(&self, key: &[u8], toc: &str) {
@@ -175,6 +192,16 @@ impl TocDownloads {
             downloads: self.clone(),
             keys: mine,
         })
+    }
+
+    /// The downloads of `keys` that other connections are running now
+    pub(super) fn running(&self, keys: &[Vec<u8>]) -> Waiting {
+        let downloads = self.0.lock().unwrap();
+        Waiting(
+            keys.iter()
+                .filter_map(|key| downloads.get(key).map(watch::Sender::subscribe))
+                .collect(),
+        )
     }
 }
 
@@ -223,15 +250,34 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    #[test]
-    fn probe_answers_a_miss_with_an_empty_toc() {
+    #[tokio::test]
+    async fn a_miss_is_downloaded_by_the_first_connection_only() {
         let cache = ServerTocCache::new(None);
         cache.store_toc(&[1, 0xaa], r#"{"a":[1,8]}"#);
-        let probe = ProbeCache::new(cache);
-        assert_eq!(probe.get_toc(&[1, 0xaa]).as_deref(), Some(r#"{"a":[1,8]}"#));
-        assert!(probe.missed().is_empty());
-        assert_eq!(probe.get_toc(&[1, 2]).as_deref(), Some("{}"));
-        assert_eq!(probe.missed(), vec![vec![1, 2]]);
+        let downloads = TocDownloads::default();
+        let first = ProbeCache::new(cache.clone(), downloads.clone());
+        assert_eq!(first.get_toc(&[1, 0xaa]).as_deref(), Some(r#"{"a":[1,8]}"#));
+        // Not cached: this connection downloads it
+        assert_eq!(first.get_toc(&[1, 2]), None);
+
+        // Another connection missing it meanwhile gets an empty TOC, and waits
+        let second = ProbeCache::new(cache.clone(), downloads.clone());
+        assert_eq!(second.get_toc(&[1, 2]).as_deref(), Some("{}"));
+        let missed = second.finish();
+        assert_eq!(missed, vec![vec![1, 2]]);
+        let waiting = tokio::spawn(downloads.running(&missed).finished());
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished());
+
+        // crazyflie-lib stores what the first one downloaded
+        first.store_toc(&[1, 2], r#"{"b":[2,8]}"#);
+        assert!(first.finish().is_empty());
+        tokio::time::timeout(std::time::Duration::from_secs(1), waiting)
+            .await
+            .unwrap()
+            .unwrap();
+        let third = ProbeCache::new(cache, downloads);
+        assert_eq!(third.get_toc(&[1, 2]).as_deref(), Some(r#"{"b":[2,8]}"#));
     }
 
     #[tokio::test]

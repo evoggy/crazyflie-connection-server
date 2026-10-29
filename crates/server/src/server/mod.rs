@@ -26,7 +26,7 @@ use crazyflie_connection_protocol::{
     normalize_uri,
 };
 use crazyflie_lib::crazyflie_link::crazyradio::Crazyradio;
-use crazyflie_lib::crazyflie_link::{LinkContext, SharedCrazyradio};
+use crazyflie_lib::crazyflie_link::{Connection, LinkContext, SharedCrazyradio};
 use crazyflie_lib::{Crazyflie, TocCache};
 use log::{info, warn};
 use std::collections::{BTreeMap, HashMap};
@@ -547,59 +547,65 @@ impl Server {
         };
         // A Crazyflie whose nRF51 acks the packets while its STM32 is off
         // (put to sleep by another program) or in its bootloader would keep
-        // crazyflie-lib waiting for TOC answers until the connect timeout
-        if slot.is_some() && !self.echoes_now(&link_uri).await {
-            self.release_radio(slot);
-            return Err(match self.answers(uri).await {
-                Some(_) => format!(
-                    "{} answers the radio but not its firmware: it is asleep (wake it up first) or in its bootloader",
-                    uri.key
-                ),
-                None => format!("{} doesn't answer", uri.key),
-            });
-        }
+        // crazyflie-lib waiting for TOC answers until the connect timeout. So
+        // its firmware is first asked for its versions, on the link
+        // crazyflie-lib then connects on
+        let (link, versions) = match slot {
+            Some(_) => match self.ask_versions(&link_uri).await {
+                Some((link, versions)) => (Some(link), Some(versions)),
+                None => {
+                    self.release_radio(slot);
+                    return Err(match self.answers(uri).await {
+                        Some(_) => format!(
+                            "{} answers the radio but not its firmware: it is asleep (wake it up first) or in its bootloader",
+                            uri.key
+                        ),
+                        None => format!("{} doesn't answer", uri.key),
+                    });
+                }
+            },
+            None => (None, None),
+        };
         info!("Connecting {link_uri}");
-        let cf = match self.connect_link(&link_uri).await {
+        let cf = match self.connect_link(&link_uri, link).await {
             Ok(cf) => Arc::new(cf),
             Err(e) => {
                 self.release_radio(slot);
                 return Err(format!("Connecting {}: {e}", uri.key));
             }
         };
-        let entry = self.register(&uri.key, slot, cf).await;
+        let entry = self.register(&uri.key, slot, cf, versions).await;
         info!("Connected {} on {link_uri}", entry.key);
         Ok(entry)
     }
 
-    /// Connect over `link_uri`, first with only the cached TOCs. A Crazyflie
-    /// whose TOCs aren't cached downloads them, unless another connection is
-    /// downloading the same ones: it then waits for that one and connects from
-    /// the cache. So a swarm with one firmware downloads its TOCs once
-    async fn connect_link(&self, link_uri: &str) -> Result<Crazyflie, String> {
-        let mut waited = false;
-        loop {
-            let probe = ProbeCache::new(self.inner.toc_cache.clone());
-            let cf = self.connect_with(link_uri, probe.clone()).await?;
-            let missed = probe.missed();
-            if missed.is_empty() {
-                return Ok(cf);
-            }
-            cf.disconnect().await;
-            match self.inner.toc_downloads.claim(&missed) {
-                Err(downloads) if !waited => {
-                    waited = true;
-                    let _ = tokio::time::timeout(CONNECT_TIMEOUT, downloads.finished()).await;
-                }
-                // Downloads them (also after waiting, should the cache not keep them)
-                claim => {
-                    let connected = self
-                        .connect_with(link_uri, self.inner.toc_cache.clone())
-                        .await;
-                    drop(claim);
-                    return connected;
-                }
-            }
+    /// Connect over `link_uri`, on `link` when it is open already. A TOC that
+    /// isn't cached is downloaded, unless another connection is downloading
+    /// it: this one then waits for that one and connects again from the
+    /// cache. So a swarm with one firmware downloads its TOCs once
+    async fn connect_link(
+        &self,
+        link_uri: &str,
+        link: Option<Connection>,
+    ) -> Result<Crazyflie, String> {
+        let probe = ProbeCache::new(
+            self.inner.toc_cache.clone(),
+            self.inner.toc_downloads.clone(),
+        );
+        let connected = self.connect_with(link_uri, link, probe.clone()).await;
+        // What this connection downloaded is cached now, or failed: the
+        // connections waiting for it go on
+        let missed = probe.finish();
+        let cf = connected?;
+        if missed.is_empty() {
+            return Ok(cf);
         }
+        cf.disconnect().await;
+        let others = self.inner.toc_downloads.running(&missed);
+        let _ = tokio::time::timeout(CONNECT_TIMEOUT, others.finished()).await;
+        // Downloads them, should the other connections have failed
+        self.connect_with(link_uri, None, self.inner.toc_cache.clone())
+            .await
     }
 
     /// One connection attempt. Every Crazyflie connects at once, also the
@@ -609,15 +615,19 @@ impl Server {
     async fn connect_with(
         &self,
         link_uri: &str,
+        link: Option<Connection>,
         toc_cache: impl TocCache,
     ) -> Result<Crazyflie, String> {
         // crazyflie-link 0.5 panics when the Crazyradio fails while the link
         // starts (an unwrap in `CrazyradioConnection::open`)
-        let connecting = std::panic::AssertUnwindSafe(Crazyflie::connect_from_uri(
-            &self.inner.link_context,
-            link_uri,
-            toc_cache,
-        ));
+        let connecting = std::panic::AssertUnwindSafe(async {
+            match link {
+                Some(link) => Crazyflie::connect_from_link(link, toc_cache).await,
+                None => {
+                    Crazyflie::connect_from_uri(&self.inner.link_context, link_uri, toc_cache).await
+                }
+            }
+        });
         match tokio::time::timeout(
             CONNECT_TIMEOUT,
             futures::FutureExt::catch_unwind(connecting),
@@ -647,7 +657,7 @@ impl Server {
         let mut adopted = false;
         cell.get_or_init(|| async {
             adopted = true;
-            self.register(&uri.key, None, cf).await
+            self.register(&uri.key, None, cf, None).await
         })
         .await;
         if adopted {
@@ -657,8 +667,15 @@ impl Server {
         }
     }
 
-    /// Describe a connected Crazyflie and watch for its disconnect
-    async fn register(&self, key: &str, slot: Option<Slot>, cf: Arc<Crazyflie>) -> Arc<CfEntry> {
+    /// Describe a connected Crazyflie and watch for its disconnect. The
+    /// firmware is asked for its `versions` unless they are known already
+    async fn register(
+        &self,
+        key: &str,
+        slot: Option<Slot>,
+        cf: Arc<Crazyflie>,
+        versions: Option<Versions>,
+    ) -> Arc<CfEntry> {
         let mut params = Vec::new();
         for name in cf.param.names() {
             let (Ok(value_type), Ok(writable)) =
@@ -679,11 +696,19 @@ impl Server {
             .filter_map(|name| Some(toc_item(name.clone(), cf.log.get_type(&name).ok()?, true)))
             .collect();
         log_vars.sort_by(|a, b| a.name.cmp(&b.name));
+        let versions = match versions {
+            Some(versions) => versions,
+            None => Versions {
+                firmware: cf.platform.firmware_version().await.ok(),
+                device_type: cf.platform.device_type_name().await.ok(),
+                protocol: cf.platform.protocol_version().await.ok(),
+            },
+        };
         let info = AttachInfo {
             uri: key.to_owned(),
-            firmware_version: cf.platform.firmware_version().await.ok(),
-            device_type: cf.platform.device_type_name().await.ok(),
-            protocol_version: cf.platform.protocol_version().await.ok(),
+            firmware_version: versions.firmware,
+            device_type: versions.device_type,
+            protocol_version: versions.protocol,
             params,
             log_vars,
             memories: memory::memories(&cf),
@@ -811,6 +836,20 @@ impl Server {
                 answered
             }
             Err(_) => false,
+        }
+    }
+
+    /// Open the link at `link_uri` and ask the firmware for its versions:
+    /// the link, still open, and what it told. `None` when the firmware
+    /// doesn't answer
+    async fn ask_versions(&self, link_uri: &str) -> Option<(Connection, Versions)> {
+        let link = self.inner.link_context.open_link(link_uri).await.ok()?;
+        match versions(&link).await {
+            Some(versions) => Some((link, versions)),
+            None => {
+                link.close().await;
+                None
+            }
         }
     }
 
@@ -958,6 +997,71 @@ async fn echoes(link: &crazyflie_lib::crazyflie_link::Connection) -> bool {
     false
 }
 
+/// What the firmware tells about itself
+#[derive(Debug, Default, PartialEq)]
+struct Versions {
+    firmware: Option<String>,
+    device_type: Option<String>,
+    protocol: Option<u8>,
+}
+
+/// The platform port's version channel and its questions, as in crazyflie-lib
+const PLATFORM_PORT: u8 = 13;
+const VERSION_CHANNEL: u8 = 1;
+const VERSION_GET_PROTOCOL: u8 = 0;
+const VERSION_GET_FIRMWARE: u8 = 1;
+const VERSION_GET_DEVICE_TYPE: u8 = 2;
+
+/// Ask the firmware on `link` for its versions, the three questions at once:
+/// one round trip instead of three. `None` when it doesn't answer (asleep,
+/// in its bootloader or gone), else what it answered
+async fn versions(link: &crazyflie_lib::crazyflie_link::Connection) -> Option<Versions> {
+    use crazyflie_lib::crazyflie_link::Packet;
+    let mut versions = Versions::default();
+    let mut answered = false;
+    for _ in 0..3 {
+        for question in [
+            VERSION_GET_FIRMWARE,
+            VERSION_GET_DEVICE_TYPE,
+            VERSION_GET_PROTOCOL,
+        ] {
+            let packet = Packet::new(PLATFORM_PORT, VERSION_CHANNEL, vec![question]);
+            if link.send_packet(packet).await.is_err() {
+                return None;
+            }
+        }
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(200);
+        while versions.firmware.is_none()
+            || versions.device_type.is_none()
+            || versions.protocol.is_none()
+        {
+            let Ok(Ok(packet)) = tokio::time::timeout_at(deadline, link.recv_packet()).await else {
+                break;
+            };
+            if packet.get_port() == PLATFORM_PORT && packet.get_channel() == VERSION_CHANNEL {
+                answered |= read_version(&mut versions, packet.get_data());
+            }
+        }
+        if answered {
+            return Some(versions);
+        }
+    }
+    None
+}
+
+/// Take in the answer `data` to a version question, as crazyflie-lib reads
+/// it. Whether it was one
+fn read_version(versions: &mut Versions, data: &[u8]) -> bool {
+    let text = || Some(String::from_utf8_lossy(data.get(1..)?).into_owned());
+    match data.first() {
+        Some(&VERSION_GET_FIRMWARE) => versions.firmware = text(),
+        Some(&VERSION_GET_DEVICE_TYPE) => versions.device_type = text(),
+        Some(&VERSION_GET_PROTOCOL) => versions.protocol = data.get(1).copied(),
+        _ => return false,
+    }
+    true
+}
+
 const RADIOS_BUSY: &str = "Every Crazyradio is in use by another program (a connection server?)";
 
 /// Number of attached Crazyradios, in the order crazyflie-link numbers them
@@ -1036,5 +1140,22 @@ mod tests {
         // A pinned link's radio isn't a candidate when it isn't held
         let load: BTreeMap<usize, Vec<u8>> = [(1, vec![80])].into();
         assert_eq!(choose_radio(&load, &[0], 80), Some(0));
+    }
+
+    #[test]
+    fn version_answers_are_read_as_crazyflie_lib_reads_them() {
+        let mut versions = Versions::default();
+        assert!(read_version(&mut versions, b"\x012026.10"));
+        assert!(read_version(&mut versions, b"\x02Crazyflie 2.1"));
+        assert!(read_version(&mut versions, &[VERSION_GET_PROTOCOL, 10]));
+        assert!(!read_version(&mut versions, &[7, 1]));
+        assert_eq!(
+            versions,
+            Versions {
+                firmware: Some("2026.10".to_owned()),
+                device_type: Some("Crazyflie 2.1".to_owned()),
+                protocol: Some(10),
+            }
+        );
     }
 }
