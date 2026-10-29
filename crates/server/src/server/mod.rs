@@ -1012,41 +1012,137 @@ const VERSION_GET_PROTOCOL: u8 = 0;
 const VERSION_GET_FIRMWARE: u8 = 1;
 const VERSION_GET_DEVICE_TYPE: u8 = 2;
 
+/// How long [versions] waits for answers before it sends again
+const VERSION_ROUND: Duration = Duration::from_millis(200);
+/// [versions] gives up after this many rounds without an answer
+const VERSION_ROUNDS: u32 = 3;
+/// How long [versions] waits for the rest of the answers once the firmware
+/// has answered something. Every firmware crazyflie-lib connects to answers
+/// all three, but a starting one only once it has started (a connect 3 s
+/// after a restart took 1.85 s, Crazyflie 2.1 Brushless with a Lighthouse
+/// deck)
+const VERSION_ANSWERS: Duration = Duration::from_secs(5);
+
 /// Ask the firmware on `link` for its versions, the three questions at once:
 /// one round trip instead of three. `None` when it doesn't answer (asleep,
 /// in its bootloader or gone), else what it answered
 async fn versions(link: &crazyflie_lib::crazyflie_link::Connection) -> Option<Versions> {
-    use crazyflie_lib::crazyflie_link::Packet;
-    let mut versions = Versions::default();
-    let mut answered = false;
-    for _ in 0..3 {
-        for question in [
-            VERSION_GET_FIRMWARE,
-            VERSION_GET_DEVICE_TYPE,
-            VERSION_GET_PROTOCOL,
-        ] {
-            let packet = Packet::new(PLATFORM_PORT, VERSION_CHANNEL, vec![question]);
+    let start = tokio::time::Instant::now();
+    let mut probe = VersionProbe::default();
+    loop {
+        for packet in probe.next_packets() {
             if link.send_packet(packet).await.is_err() {
                 return None;
             }
         }
-        let deadline = tokio::time::Instant::now() + Duration::from_millis(200);
-        while versions.firmware.is_none()
-            || versions.device_type.is_none()
-            || versions.protocol.is_none()
-        {
+        let deadline = tokio::time::Instant::now() + VERSION_ROUND;
+        // Lost questions are asked again right away
+        while !probe.done() && probe.asked.is_some() {
             let Ok(Ok(packet)) = tokio::time::timeout_at(deadline, link.recv_packet()).await else {
                 break;
             };
-            if packet.get_port() == PLATFORM_PORT && packet.get_channel() == VERSION_CHANNEL {
-                answered |= read_version(&mut versions, packet.get_data());
-            }
+            probe.take(&packet);
         }
-        if answered {
-            return Some(versions);
+        if probe.done() {
+            return Some(probe.versions);
+        }
+        if !probe.alive && start.elapsed() >= VERSION_ROUND * VERSION_ROUNDS {
+            return None;
+        }
+        if probe.alive && start.elapsed() >= VERSION_ANSWERS {
+            warn!("Connecting with answers to version questions still to come: {probe:?}");
+            return Some(probe.versions);
         }
     }
-    None
+}
+
+/// The first byte of the link echoes [VersionProbe] sends, the second is its number
+const PROBE_ECHO: u8 = 0xEC;
+
+/// The questions of [versions] and what has come back. crazyflie-lib then
+/// connects on the link and takes the first packet on the version channel as
+/// the answer to its own question, so no answer to these may come after
+/// that ("Wrong version answer"). Answers can come long after the questions,
+/// queued behind the console lines the firmware printed while nobody was
+/// connected, so a question is never asked again while its answer may still
+/// come.
+///
+/// A numbered link echo follows the questions. A firmware that doesn't run
+/// yet (asleep, starting) loses the packets sent until it does and gets the
+/// rest, and it answers echoes in order: so when a later echo comes back
+/// before the one after the questions, that one and the questions were lost,
+/// and only then are they asked again. Otherwise every answer is waited for,
+/// and every echo
+#[derive(Debug, Default)]
+struct VersionProbe {
+    versions: Versions,
+    /// The number of the last echo sent, and of the last one back
+    sent: u8,
+    back: u8,
+    /// The echo that followed the questions, unless they have to be asked
+    /// (again)
+    asked: Option<u8>,
+    /// The echo after the questions came back
+    arrived: bool,
+    /// The firmware answered something
+    alive: bool,
+}
+
+impl VersionProbe {
+    /// What to send now: the questions with an echo after them when they
+    /// have to be asked, an echo while the firmware hasn't answered, else
+    /// nothing
+    fn next_packets(&mut self) -> Vec<crazyflie_lib::crazyflie_link::Packet> {
+        use crazyflie_lib::crazyflie_link::Packet;
+        let mut packets = Vec::new();
+        if self.asked.is_none() {
+            for question in [
+                VERSION_GET_FIRMWARE,
+                VERSION_GET_DEVICE_TYPE,
+                VERSION_GET_PROTOCOL,
+            ] {
+                packets.push(Packet::new(PLATFORM_PORT, VERSION_CHANNEL, vec![question]));
+            }
+        }
+        if self.asked.is_none() || !self.alive {
+            self.sent += 1;
+            packets.push(Packet::new(15, 0, vec![PROBE_ECHO, self.sent]));
+            self.asked.get_or_insert(self.sent);
+        }
+        packets
+    }
+
+    /// Take in a packet from the firmware
+    fn take(&mut self, packet: &crazyflie_lib::crazyflie_link::Packet) {
+        match (
+            packet.get_port(),
+            packet.get_channel(),
+            packet.get_data().as_slice(),
+        ) {
+            (PLATFORM_PORT, VERSION_CHANNEL, data) => {
+                self.alive |= read_version(&mut self.versions, data);
+            }
+            (15, 0, &[PROBE_ECHO, number]) => {
+                self.alive = true;
+                self.back = number;
+                match self.asked {
+                    Some(asked) if number == asked => self.arrived = true,
+                    Some(asked) if number > asked && !self.arrived => self.asked = None,
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Every question arrived and is answered, and every echo is back
+    fn done(&self) -> bool {
+        self.arrived
+            && self.back == self.sent
+            && self.versions.firmware.is_some()
+            && self.versions.device_type.is_some()
+            && self.versions.protocol.is_some()
+    }
 }
 
 /// Take in the answer `data` to a version question, as crazyflie-lib reads
@@ -1140,6 +1236,78 @@ mod tests {
         // A pinned link's radio isn't a candidate when it isn't held
         let load: BTreeMap<usize, Vec<u8>> = [(1, vec![80])].into();
         assert_eq!(choose_radio(&load, &[0], 80), Some(0));
+    }
+
+    use crazyflie_lib::crazyflie_link::Packet;
+
+    /// The firmware's answer to `packet` (a question or an echo)
+    fn answer(packet: &Packet) -> Packet {
+        let data = match packet.get_data()[..] {
+            [VERSION_GET_FIRMWARE] => b"\x012026.10".to_vec(),
+            [VERSION_GET_DEVICE_TYPE] => b"\x02Crazyflie 2.1".to_vec(),
+            [VERSION_GET_PROTOCOL] => vec![VERSION_GET_PROTOCOL, 10],
+            _ => packet.get_data().clone(),
+        };
+        Packet::new(packet.get_port(), packet.get_channel(), data)
+    }
+
+    #[test]
+    fn versions_in_one_round_trip() {
+        let mut probe = VersionProbe::default();
+        let sent = probe.next_packets();
+        assert_eq!(sent.len(), 4);
+        for packet in &sent {
+            assert!(!probe.done());
+            probe.take(&answer(packet));
+        }
+        assert!(probe.done());
+        assert_eq!(probe.versions.protocol, Some(10));
+    }
+
+    #[test]
+    fn late_answers_are_waited_for_not_asked_again() {
+        let mut probe = VersionProbe::default();
+        let first = probe.next_packets();
+        // No answer within a round: only an echo goes again
+        let second = probe.next_packets();
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0].get_port(), 15);
+        for packet in first.iter().chain(&second) {
+            probe.take(&answer(packet));
+        }
+        assert!(probe.done());
+    }
+
+    #[test]
+    fn lost_questions_are_asked_again() {
+        let mut probe = VersionProbe::default();
+        let _lost = probe.next_packets();
+        let second = probe.next_packets();
+        // The echo after the questions didn't come back, a later one did
+        probe.take(&answer(&second[0]));
+        assert!(!probe.done());
+        let third = probe.next_packets();
+        assert_eq!(third.len(), 4);
+        for packet in &third {
+            probe.take(&answer(packet));
+        }
+        assert!(probe.done());
+    }
+
+    #[test]
+    fn done_once_every_echo_is_back() {
+        let mut probe = VersionProbe::default();
+        let first = probe.next_packets();
+        let second = probe.next_packets();
+        for packet in &first {
+            probe.take(&answer(packet));
+        }
+        // Its answer would reach crazyflie-lib's link service
+        assert!(!probe.done());
+        // Nothing more to send once the firmware answers
+        assert!(probe.next_packets().is_empty());
+        probe.take(&answer(&second[0]));
+        assert!(probe.done());
     }
 
     #[test]
