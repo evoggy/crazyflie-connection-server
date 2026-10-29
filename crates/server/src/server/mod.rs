@@ -551,9 +551,29 @@ impl Server {
         // its firmware is first asked for its versions, on the link
         // crazyflie-lib then connects on
         let (link, versions) = match slot {
-            Some(_) => match self.ask_versions(&link_uri).await {
-                Some((link, versions)) => (Some(link), Some(versions)),
-                None => {
+            Some(picked) => match self.ask_versions(&link_uri).await {
+                Ok(Some((link, versions))) => (Some(link), Some(versions)),
+                // A radio link only fails to open when its Crazyradio does,
+                // e.g. one pinned in the URI that another program holds
+                Err(e) => {
+                    self.release_radio(slot);
+                    use crazyflie_lib::crazyflie_link::{Error, crazyradio};
+                    return Err(match e {
+                        Error::CrazyradioError(crazyradio::Error::NotFound) => {
+                            format!("No Crazyradio {} found", picked.radio)
+                        }
+                        Error::CrazyradioError(crazyradio::Error::UsbError(usb))
+                            if format!("{usb:?}") == "Busy" =>
+                        {
+                            format!(
+                                "Crazyradio {} is in use by another program (a connection server?)",
+                                picked.radio
+                            )
+                        }
+                        e => format!("Can't open Crazyradio {}: {e}", picked.radio),
+                    });
+                }
+                Ok(None) => {
                     self.release_radio(slot);
                     return Err(match self.answers(uri).await {
                         Some(_) => format!(
@@ -841,14 +861,17 @@ impl Server {
 
     /// Open the link at `link_uri` and ask the firmware for its versions:
     /// the link, still open, and what it told. `None` when the firmware
-    /// doesn't answer
-    async fn ask_versions(&self, link_uri: &str) -> Option<(Connection, Versions)> {
-        let link = self.inner.link_context.open_link(link_uri).await.ok()?;
+    /// doesn't answer, an error when the link doesn't open
+    async fn ask_versions(
+        &self,
+        link_uri: &str,
+    ) -> Result<Option<(Connection, Versions)>, crazyflie_lib::crazyflie_link::Error> {
+        let link = self.inner.link_context.open_link(link_uri).await?;
         match versions(&link).await {
-            Some(versions) => Some((link, versions)),
+            Some(versions) => Ok(Some((link, versions))),
             None => {
                 link.close().await;
-                None
+                Ok(None)
             }
         }
     }

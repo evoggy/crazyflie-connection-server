@@ -80,7 +80,9 @@ and `platform`. Without attaching, the call fails with `Not attached to …`.
 shares the connection that is already there. The reply has the param and log
 TOCs and the memory list, so a client doesn't download anything itself. Over
 radio, `attach` fails within a second when the Crazyflie doesn't answer, or
-when only its nRF51 does (it is asleep or in its bootloader). Every
+when only its nRF51 does (it is asleep or in its bootloader). A URI that
+names a Crazyradio (`radio://0/…`) fails right away when another program
+holds that Crazyradio. Every
 client attached to a Crazyflie can send it every call: the server does not
 lock params or flying to one client.
 
