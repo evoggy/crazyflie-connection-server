@@ -1037,22 +1037,28 @@ const VERSION_GET_DEVICE_TYPE: u8 = 2;
 
 /// How long [versions] waits for answers before it sends again
 const VERSION_ROUND: Duration = Duration::from_millis(200);
-/// [versions] gives up after this many rounds without an answer
-const VERSION_ROUNDS: u32 = 3;
-/// How long [versions] waits for the rest of the answers once the firmware
-/// has answered something. Every firmware crazyflie-lib connects to answers
-/// all three, but a starting one only once it has started (a connect 3 s
-/// after a restart took 1.85 s, Crazyflie 2.1 Brushless with a Lighthouse
-/// deck)
-const VERSION_ANSWERS: Duration = Duration::from_secs(5);
+/// How long [versions] waits for a firmware that doesn't answer while its
+/// nRF51 acks the packets. One that is starting answers within this, one
+/// that is asleep or in its bootloader never does. After a reboot a
+/// Crazyflie 2.1 Brushless with a Lighthouse deck acked at 2.7 s, when its
+/// STM32 had given the nRF51 its address, and answered at about 5.1 s
+const FIRMWARE_SILENCE: Duration = Duration::from_secs(5);
+/// How long [versions] waits for the rest of the answers after the first
+const VERSION_ANSWERS: Duration = Duration::from_secs(2);
 
 /// Ask the firmware on `link` for its versions, the three questions at once:
 /// one round trip instead of three. `None` when it doesn't answer (asleep,
-/// in its bootloader or gone), else what it answered
+/// in its bootloader or gone), else what it answered. When nothing acks the
+/// packets the link drops after its timeout (1 s by default) and this ends
 async fn versions(link: &crazyflie_lib::crazyflie_link::Connection) -> Option<Versions> {
+    use crazyflie_lib::crazyflie_link::ConnectionStatus;
     let start = tokio::time::Instant::now();
+    let mut first_answer = None;
     let mut probe = VersionProbe::default();
     loop {
+        if let ConnectionStatus::Disconnected(_) = link.status().await {
+            return None;
+        }
         for packet in probe.next_packets() {
             if link.send_packet(packet).await.is_err() {
                 return None;
@@ -1069,12 +1075,14 @@ async fn versions(link: &crazyflie_lib::crazyflie_link::Connection) -> Option<Ve
         if probe.done() {
             return Some(probe.versions);
         }
-        if !probe.alive && start.elapsed() >= VERSION_ROUND * VERSION_ROUNDS {
+        if probe.alive {
+            let first = *first_answer.get_or_insert_with(tokio::time::Instant::now);
+            if first.elapsed() >= VERSION_ANSWERS {
+                warn!("Connecting with answers to version questions still to come: {probe:?}");
+                return Some(probe.versions);
+            }
+        } else if start.elapsed() >= FIRMWARE_SILENCE {
             return None;
-        }
-        if probe.alive && start.elapsed() >= VERSION_ANSWERS {
-            warn!("Connecting with answers to version questions still to come: {probe:?}");
-            return Some(probe.versions);
         }
     }
 }

@@ -79,12 +79,14 @@ and `platform`. Without attaching, the call fails with `Not attached to …`.
 `attach` connects the Crazyflie if no other client has; otherwise the client
 shares the connection that is already there. The reply has the param and log
 TOCs and the memory list, so a client doesn't download anything itself. Over
-radio, `attach` fails within a second when the Crazyflie doesn't answer, or
-when only its nRF51 does (it is asleep or in its bootloader). A URI that
-names a Crazyradio (`radio://0/…`) fails right away when another program
-holds that Crazyradio. Every
-client attached to a Crazyflie can send it every call: the server does not
-lock params or flying to one client.
+radio, `attach` fails within about a second when the Crazyflie doesn't
+answer, and after 5 s when only its nRF51 does (it is asleep or in its
+bootloader; one this server put to sleep fails within a second). A Crazyflie
+that is starting acks once its STM32 runs and its firmware answers a few
+seconds later: `attach` waits for that. A URI that names a Crazyradio
+(`radio://0/…`) fails right away when another program holds that Crazyradio.
+Every client attached to a Crazyflie can send it every call: the server does
+not lock params or flying to one client.
 
 `detach` lets go of it. The server disconnects a Crazyflie a while (10 s by
 default) after its last client detaches, so a client that comes back
